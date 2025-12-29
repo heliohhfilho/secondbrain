@@ -64,110 +64,148 @@ def fetch_all_episodes(tmdb_id, titulo, total_seasons):
     placeholder.empty(); bar.empty()
     return novos
 
-# --- RENDERIZAÇÃO ---
-def render_page():
-    st.header("🎬 TV Time: Batch Mode")
-    st.caption("Edite à vontade. A sincronização só ocorre quando você clicar em Salvar.")
+# --- COMPONENTE DE RENDERIZAÇÃO DE SÉRIE ---
+def render_serie_card(serie, df_log, key_suffix, readonly=False):
+    """Renderiza o card de uma série específica"""
+    mask_serie = df_log['ID_TMDB'] == str(serie['ID_TMDB'])
+    df_s = df_log[mask_serie].sort_values(['Temporada', 'Episodio'])
     
+    total_eps = len(df_s)
+    vistos = df_s['Visto'].sum()
+    progresso = vistos / total_eps if total_eps > 0 else 0
+    
+    with st.container(border=True):
+        c1, c2 = st.columns([1, 5])
+        with c1:
+            if serie['Poster_URL']: st.image(f"https://image.tmdb.org/t/p/w200{serie['Poster_URL']}")
+            else: st.write("📺")
+        
+        with c2:
+            st.subheader(f"{serie['Titulo']}")
+            st.progress(progresso)
+            st.caption(f"Progresso: {vistos}/{total_eps} ({int(progresso*100)}%)")
+            
+            # Se for readonly (ex: Pausada/Finalizada), não mostra editor complexo
+            if readonly:
+                return
+
+            # --- MODO CHECKLIST ---
+            with st.expander("📂 Abrir Temporadas", expanded=False):
+                temps = sorted(df_s['Temporada'].unique())
+                if not temps:
+                    st.warning("Sem episódios.")
+                    if st.button("🔄 Baixar", key=f"sync_{serie['ID_TMDB']}_{key_suffix}"):
+                        eps = fetch_all_episodes(serie['ID_TMDB'], serie['Titulo'], serie['Total_Seasons'])
+                        if eps:
+                            # Recarrega DF Log externo (gambiarra necessária no Streamlit sem Session State complexo)
+                            st.rerun() 
+                else:
+                    t_select = st.selectbox(f"Temp. ({serie['Titulo']})", temps, key=f"ts_{serie['ID_TMDB']}_{key_suffix}")
+                    
+                    # Filtro e Editor
+                    mask_view = (df_log['ID_TMDB'] == str(serie['ID_TMDB'])) & (df_log['Temporada'] == t_select)
+                    df_view = df_log.loc[mask_view, ['Episodio', 'Nome_Epi', 'Data_Estreia', 'Visto', 'Nota']]
+                    
+                    edited_df = st.data_editor(
+                        df_view,
+                        column_config={
+                            "Visto": st.column_config.CheckboxColumn("Vi", width="small"),
+                            "Nota": st.column_config.NumberColumn("⭐", min_value=0, max_value=5, width="small"),
+                            "Episodio": st.column_config.TextColumn("Ep.", width="small"),
+                            "Nome_Epi": st.column_config.TextColumn("Título", disabled=True),
+                            "Data_Estreia": st.column_config.TextColumn("Data", disabled=True),
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                        key=f"ed_{serie['ID_TMDB']}_{t_select}_{key_suffix}"
+                    )
+                    
+                    if st.button("💾 Salvar", key=f"sv_{serie['ID_TMDB']}_{t_select}_{key_suffix}"):
+                        df_log.loc[edited_df.index, ['Visto', 'Nota']] = edited_df[['Visto', 'Nota']]
+                        mask_new_seen = (df_log['Visto'] == True) & (df_log['Data_Visto'] == "")
+                        df_log.loc[mask_new_seen, 'Data_Visto'] = str(date.today())
+                        save_log(df_log)
+                        st.success("Salvo!")
+                        st.rerun()
+
+# --- RENDERIZAÇÃO PRINCIPAL ---
+def render_page():
+    st.header("🎬 TV Time: Hub de Séries")
     df_master, df_log = load_data()
 
-    tab_track, tab_add, tab_cal = st.tabs(["📺 Gerenciar Séries", "🔍 Adicionar Nova", "🗓️ Calendário"])
+    tab_track, tab_add, tab_cal, tab_man = st.tabs(["📺 Minhas Séries", "🔍 Adicionar", "🗓️ Calendário", "⚙️ Gerenciar"])
 
     # ------------------------------------------------------------------
-    # ABA 1: GERENCIADOR EM LOTE (BATCH EDITOR)
+    # ABA 1: MINHAS SÉRIES (SEGMENTADAS)
     # ------------------------------------------------------------------
     with tab_track:
         if df_master.empty:
-            st.info("Nenhuma série ativa.")
+            st.info("Nenhuma série.")
         else:
-            # 1. Selecionar Série (Para não carregar tudo de uma vez)
-            ativas = df_master[df_master['Status'] == 'Ativo']
-            opcoes_series = ativas['Titulo'].unique()
-            serie_sel = st.selectbox("Selecione a Série para editar:", opcoes_series)
+            # 1. Separação Lógica
+            # Filtros de Status Mestre
+            s_ativas = df_master[df_master['Status'] == 'Ativo']
+            s_pausadas = df_master[df_master['Status'] == 'Pausado']
+            s_finalizadas = df_master[df_master['Status'] == 'Finalizado']
             
-            if serie_sel:
-                # Dados da Série Selecionada
-                row_master = ativas[ativas['Titulo'] == serie_sel].iloc[0]
-                
-                # Filtra Log
-                mask_serie = df_log['ID_TMDB'] == str(row_master['ID_TMDB'])
-                df_s = df_log[mask_serie].sort_values(['Temporada', 'Episodio'])
-                
-                # 2. Selecionar Temporada (Crucial para performance visual)
-                temps = sorted(df_s['Temporada'].unique())
-                if not temps:
-                    st.warning("Sem episódios baixados.")
-                    if st.button("🔄 Baixar Episódios Agora"):
-                        eps = fetch_all_episodes(row_master['ID_TMDB'], row_master['Titulo'], row_master['Total_Seasons'])
-                        if eps:
-                            df_log = pd.concat([df_log, pd.DataFrame(eps)], ignore_index=True)
-                            save_log(df_log)
-                            st.rerun()
+            # Sub-filtro: Ativas com episódios pendentes vs Ativas em dia
+            ids_ativas = s_ativas['ID_TMDB'].unique()
+            ids_em_dia = []
+            ids_assistindo = []
+            
+            for sid in ids_ativas:
+                # Olha no log se tem episódio False
+                log_serie = df_log[df_log['ID_TMDB'] == str(sid)]
+                if log_serie.empty: 
+                    ids_assistindo.append(sid) # Se tá vazio, assume que precisa ver/baixar
+                elif log_serie['Visto'].all():
+                    ids_em_dia.append(sid)
                 else:
-                    # Tabs por Temporada ou Selectbox (Selectbox é mais limpo se tiver muitas)
-                    t_select = st.selectbox(f"Temporada de {serie_sel}", temps)
-                    
-                    # Filtra Temporada Específica
-                    mask_view = (df_log['ID_TMDB'] == str(row_master['ID_TMDB'])) & (df_log['Temporada'] == t_select)
-                    df_view = df_log.loc[mask_view, ['Episodio', 'Nome_Epi', 'Data_Estreia', 'Visto', 'Nota']]
-                    
-                    # Layout do Editor
-                    c1, c2 = st.columns([1, 4])
-                    if row_master['Poster_URL']: c1.image(f"https://image.tmdb.org/t/p/w200{row_master['Poster_URL']}")
-                    
-                    with c2:
-                        st.info("📝 Marque tudo o que assistiu abaixo. O Google Drive só será atualizado quando clicar no botão 'Salvar'.")
-                        
-                        # --- O GRANDE SEGREDO: DATA EDITOR ---
-                        # O editor roda localmente na memória do navegador/servidor
-                        edited_df = st.data_editor(
-                            df_view,
-                            column_config={
-                                "Visto": st.column_config.CheckboxColumn("Visto", help="Check para marcar como assistido"),
-                                "Nota": st.column_config.NumberColumn("Nota", min_value=0, max_value=5, step=1, format="%d ⭐"),
-                                "Episodio": st.column_config.TextColumn("Ep."),
-                                "Nome_Epi": st.column_config.TextColumn("Título", disabled=True),
-                                "Data_Estreia": st.column_config.TextColumn("Estreia", disabled=True),
-                            },
-                            hide_index=True,
-                            use_container_width=True,
-                            height=400, # Barra de rolagem se for muito grande
-                            key=f"editor_{row_master['ID_TMDB']}_{t_select}"
-                        )
-                        
-                        # --- BOTÃO DE AÇÃO (GATILHO ÚNICO) ---
-                        col_save, col_info = st.columns([1, 2])
-                        
-                        # Detecta mudanças para avisar o usuário (opcional, mas legal)
-                        changes_made = not edited_df.equals(df_view)
-                        
-                        if changes_made:
-                            col_info.warning("⚠️ Você tem alterações não salvas!")
-                        
-                        if col_save.button("💾 SALVAR ALTERAÇÕES NA NUVEM", type="primary"):
-                            # Aqui acontece a mágica:
-                            # 1. Pegamos os índices originais
-                            indices_alterados = edited_df.index
-                            
-                            # 2. Atualizamos o DF principal (df_log) com os dados editados
-                            df_log.loc[indices_alterados, ['Visto', 'Nota']] = edited_df[['Visto', 'Nota']]
-                            
-                            # 3. Atualizamos Data_Visto automaticamente para quem virou TRUE agora
-                            # (Lógica: Se Visto=True e Data_Visto está vazia, põe hoje)
-                            mask_new_seen = (df_log['Visto'] == True) & (df_log['Data_Visto'] == "")
-                            df_log.loc[mask_new_seen, 'Data_Visto'] = str(date.today())
-                            
-                            # 4. SÓ AGORA chamamos a API do Google (1 request apenas)
-                            save_log(df_log)
-                            
-                            st.success("Sincronizado com sucesso!")
-                            st.rerun()
+                    ids_assistindo.append(sid)
+            
+            # DataFrames finais
+            df_assistindo = s_ativas[s_ativas['ID_TMDB'].isin(ids_assistindo)]
+            df_em_dia = s_ativas[s_ativas['ID_TMDB'].isin(ids_em_dia)]
+
+            # 2. Visualização em Abas Internas
+            st_t1, st_t2, st_t3, st_t4 = st.tabs([
+                f"▶️ Assistindo ({len(df_assistindo)})", 
+                f"⏳ Em Dia ({len(df_em_dia)})", 
+                f"⏸️ Pausadas ({len(s_pausadas)})", 
+                f"✅ Finalizadas ({len(s_finalizadas)})"
+            ])
+            
+            with st_t1:
+                if df_assistindo.empty: st.info("Nada pendente! Vá para 'Adicionar' ou veja as 'Em Dia'.")
+                for _, row in df_assistindo.iterrows():
+                    render_serie_card(row, df_log, "watch")
+            
+            with st_t2:
+                if df_em_dia.empty: st.caption("Nenhuma série aguardando temporada.")
+                for _, row in df_em_dia.iterrows():
+                    st.success(f"🎉 **{row['Titulo']}**: Você viu tudo!")
+                    render_serie_card(row, df_log, "wait", readonly=False) # Permite abrir pra ver notas antigas
+            
+            with st_t3:
+                if s_pausadas.empty: st.caption("Nenhuma série pausada.")
+                for _, row in s_pausadas.iterrows():
+                    st.warning(f"⏸️ **{row['Titulo']}** (Pausada)")
+                    # Botão rápido de retomar
+                    if st.button("▶️ Retomar", key=f"res_{row['ID_TMDB']}"):
+                        df_master.loc[df_master['ID_TMDB'] == row['ID_TMDB'], 'Status'] = 'Ativo'
+                        save_master(df_master)
+                        st.rerun()
+
+            with st_t4:
+                if s_finalizadas.empty: st.caption("Nenhuma série finalizada.")
+                for _, row in s_finalizadas.iterrows():
+                    st.markdown(f"✅ **{row['Titulo']}**")
 
     # ------------------------------------------------------------------
-    # ABA 2: ADICIONAR (Mesma lógica robusta)
+    # ABA 2: ADICIONAR
     # ------------------------------------------------------------------
     with tab_add:
-        q = st.text_input("Buscar Série", placeholder="Stranger Things")
+        q = st.text_input("Buscar Série", placeholder="Succession")
         if q:
             url = f"{TMDB_BASE_URL}/search/tv?query={q}&language=pt-BR"
             try:
@@ -185,6 +223,7 @@ def render_page():
                                     det = requests.get(f"{TMDB_BASE_URL}/tv/{r['id']}", headers=HEADERS).json()
                                     new_m['Total_Seasons'] = det.get('number_of_seasons', 1)
                                 except: pass
+                                
                                 conexoes.save_gsheet("Series_Master", pd.concat([df_master, pd.DataFrame([new_m])], ignore_index=True))
                                 eps = fetch_all_episodes(r['id'], r['name'], new_m['Total_Seasons'])
                                 if eps: save_log(pd.concat([df_log, pd.DataFrame(eps)], ignore_index=True))
@@ -205,3 +244,47 @@ def render_page():
                 for _, row in df_fut.iterrows():
                     st.info(f"**{row['Data_Estreia']}**: {row['Titulo']} - T{row['Temporada']}E{row['Episodio']}")
             else: st.write("Sem estreias.")
+
+    # ------------------------------------------------------------------
+    # ABA 4: GERENCIAR (Pausar/Remover/Finalizar)
+    # ------------------------------------------------------------------
+    with tab_man:
+        if not df_master.empty:
+            st.subheader("⚙️ Status das Séries")
+            
+            # Editor em Tabela para mudar Status Rapidamente
+            st.info("Mude aqui para 'Pausado' ou 'Finalizado' para organizar suas abas.")
+            
+            edited_master = st.data_editor(
+                df_master[['ID_TMDB', 'Titulo', 'Status']],
+                column_config={
+                    "ID_TMDB": st.column_config.TextColumn("ID", disabled=True),
+                    "Titulo": st.column_config.TextColumn("Título", disabled=True),
+                    "Status": st.column_config.SelectboxColumn("Status", options=["Ativo", "Pausado", "Finalizado"])
+                },
+                hide_index=True,
+                key="editor_status_master"
+            )
+            
+            if st.button("💾 Salvar Novos Status"):
+                # Atualiza o DF Master original
+                for i, row in edited_master.iterrows():
+                    # Usa o ID para garantir match correto
+                    id_row = row['ID_TMDB']
+                    status_new = row['Status']
+                    df_master.loc[df_master['ID_TMDB'] == id_row, 'Status'] = status_new
+                
+                save_master(df_master)
+                st.success("Organização atualizada!")
+                st.rerun()
+            
+            st.divider()
+            
+            # Zona de Exclusão
+            st.subheader("🗑️ Zona de Perigo")
+            del_serie = st.selectbox("Apagar Série Permanentemente", df_master['Titulo'].unique())
+            if st.button("DELETAR SÉRIE"):
+                id_del = df_master[df_master['Titulo'] == del_serie].iloc[0]['ID_TMDB']
+                save_master(df_master[df_master['ID_TMDB'] != id_del])
+                save_log(df_log[df_log['ID_TMDB'] != id_del])
+                st.success("Deletada."); st.rerun()
