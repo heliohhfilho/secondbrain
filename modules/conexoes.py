@@ -19,7 +19,7 @@ def conectar_gsheets():
 
 def load_gsheet(nome_aba, colunas_padrao):
 
-    time.delay(2)
+    time.sleep(2)
     """
     Carrega uma aba específica da planilha. Se não existir, cria.
     Retorna um DataFrame Pandas.
