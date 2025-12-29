@@ -91,9 +91,6 @@ def render_page():
     
     if not df_fear.empty:
         fears_crushed = len(df_fear[df_fear['Status']=='Superado'])
-        
-    if not df_decis.empty:
-        decisions_made = df_decis['Titulo'].nunique()
 
     # --- ALERTAS DE AÇÃO (PRIORIDADE 0) ---
     if q1_count > 0:
