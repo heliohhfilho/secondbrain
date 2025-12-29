@@ -1,136 +1,214 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
 from datetime import date
-import os
-
 from modules import conexoes
 
-PATH_MUSICA = os.path.join('data', 'musica_log.csv')
+# --- CONFIGURAÇÃO API SPOTIFY ---
+try:
+    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+        client_id=st.secrets['SPOTIPY_CLIENT_ID'],
+        client_secret=st.secrets['SPOTIPY_CLIENT_SECRET']
+    ))
+    API_AVAILABLE = True
+except:
+    API_AVAILABLE = False
 
+# --- FUNÇÕES DE DADOS ---
 def load_data():
-    cols = [
-        "ID", "Album", "Artista", "Genero", "Ano_Lancamento",
-        "Nota_0_10", "Top_Tracks", "Skip_Tracks", "Review_Curta", 
-        "Data_Ouvido", "Tracklist_Raw"
-    ]
+    cols = ["ID", "Album", "Artista", "Ano", "Genero", "Capa_URL", "Nota", "Top_Tracks", "Skip_Tracks", "Review", "Data_Ouvido", "Tracklist_Raw"]
     df = conexoes.load_gsheet("Musica", cols)
     
     if not df.empty:
-        # Saneamento de tipos para métricas e sliders
         df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
-        df["Nota_0_10"] = pd.to_numeric(df["Nota_0_10"], errors='coerce').fillna(0.0)
-        df["Ano_Lancamento"] = pd.to_numeric(df["Ano_Lancamento"], errors='coerce').fillna(2025).astype(int)
+        df["Ano"] = pd.to_numeric(df["Ano"], errors='coerce').fillna(0).astype(int)
+        df["Nota"] = pd.to_numeric(df["Nota"], errors='coerce').fillna(0.0)
     return df
 
 def save_data(df):
-    # Converte tipos para GSheets (Datas e Texto Longo)
     df_save = df.copy()
-    if "Data_Ouvido" in df_save.columns:
-        df_save["Data_Ouvido"] = df_save["Data_Ouvido"].astype(str)
-    # Garante que a tracklist seja salva como string pura
-    if "Tracklist_Raw" in df_save.columns:
-        df_save["Tracklist_Raw"] = df_save["Tracklist_Raw"].astype(str)
-        
+    # Garante string para evitar erro JSON
+    if "Tracklist_Raw" in df_save.columns: df_save["Tracklist_Raw"] = df_save["Tracklist_Raw"].astype(str)
     conexoes.save_gsheet("Musica", df_save)
 
+# --- INTEGRAÇÃO SPOTIFY ---
+def search_album(query):
+    if not API_AVAILABLE: return []
+    try:
+        results = sp.search(q=query, type='album', limit=5)
+        return results['albums']['items']
+    except: return []
+
+def get_album_details(album_id):
+    if not API_AVAILABLE: return None
+    try:
+        album = sp.album(album_id)
+        # Busca Tracklist
+        tracks = [t['name'] for t in album['tracks']['items']]
+        tracklist_str = "\n".join(tracks)
+        
+        return {
+            "Album": album['name'],
+            "Artista": album['artists'][0]['name'],
+            "Ano": int(album['release_date'][:4]) if album['release_date'] else 0,
+            "Capa_URL": album['images'][0]['url'] if album['images'] else "",
+            "Tracklist_Raw": tracklist_str
+        }
+    except: return None
+
+# --- RENDERIZAÇÃO ---
 def render_page():
-    st.header("🎧 Sound Lab: Music Tracker")
+    st.header("🎧 Sound Lab: Vinyl Collection")
+    
+    if not API_AVAILABLE:
+        st.error("⚠️ Configure SPOTIPY_CLIENT_ID e SECRET no secrets.toml para usar a busca automática.")
+
     df = load_data()
     
-    # --- SIDEBAR ---
-    with st.sidebar:
-        st.subheader("➕ Registrar Audição")
-        with st.form("form_music"):
-            m_album = st.text_input("Nome do Álbum")
-            m_artista = st.text_input("Artista")
-            m_genero = st.selectbox("Gênero", ["Rock", "Pop", "Hip-Hop", "Eletrônica", "Jazz", "MPB", "Metal", "Indie", "Outro"])
-            m_ano = st.number_input("Ano", 1950, 2026, 2025)
-            m_nota = st.slider("Nota", 0.0, 10.0, 8.0)
-            
-            st.markdown("---")
-            st.caption("Detalhes das Faixas")
-            # Novo campo para colar a tracklist inteira
-            m_tracklist = st.text_area("Tracklist Completa (Uma música por linha)", height=150, placeholder="Música 1\nMúsica 2\nMúsica 3...")
-            
-            m_top = st.text_input("🔥 Favoritas (Digite parte do nome, separado por vírgula)")
-            m_skip = st.text_input("⏭️ Skips (Digite parte do nome, separado por vírgula)")
-            m_review = st.text_area("Mini Review")
-            
-            if st.form_submit_button("Salvar"):
-                new_id = 1 if df.empty else df['ID'].max() + 1
-                novo = {
-                    "ID": new_id, "Album": m_album, "Artista": m_artista,
-                    "Genero": m_genero, "Ano_Lancamento": m_ano,
-                    "Nota_0_10": m_nota, 
-                    "Top_Tracks": m_top, "Skip_Tracks": m_skip, 
-                    "Review_Curta": m_review, "Data_Ouvido": date.today(),
-                    "Tracklist_Raw": m_tracklist
-                }
-                df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
-                save_data(df)
-                st.success("Salvo!")
-                st.rerun()
+    tab_gallery, tab_add, tab_stats = st.tabs(["💿 Minha Estante", "🔍 Adicionar Álbum", "📊 Stats"])
 
-    # --- VISUALIZAÇÃO ---
-    if not df.empty:
-        # KPIS
-        col_kpi = st.columns(4)
-        col_kpi[0].metric("Álbuns", len(df))
-        col_kpi[1].metric("Nota Média", f"{df['Nota_0_10'].mean():.1f}")
-        col_kpi[2].metric("Gênero Top", df['Genero'].mode()[0])
-        col_kpi[3].metric("Artista Top", df['Artista'].mode()[0])
-        
-        st.divider()
-        
-        # LISTA DE ÁLBUNS
-        for idx, row in df.sort_values("Data_Ouvido", ascending=False).iterrows():
-            with st.container(border=True):
-                # Header do Card
-                c1, c2 = st.columns([4, 1])
-                c1.markdown(f"### 💿 {row['Album']}")
-                c1.caption(f"{row['Artista']} | {row['Genero']} | {row['Ano_Lancamento']}")
-                
-                cor = "green" if row['Nota_0_10'] >= 8 else "orange" if row['Nota_0_10'] >= 5 else "red"
-                c2.markdown(f"<h2 style='color:{cor}; text-align:right'>{row['Nota_0_10']}</h2>", unsafe_allow_html=True)
-                
-                st.markdown(f"> *{row['Review_Curta']}*")
-                
-                # TRACKLIST VISUALIZER
-                if pd.notna(row.get('Tracklist_Raw')) and row['Tracklist_Raw']:
-                    with st.expander("🎼 Ver Tracklist & Veredito"):
-                        # Processa as listas
-                        raw_tracks = str(row['Tracklist_Raw']).split('\n')
-                        tops = [x.strip().lower() for x in str(row['Top_Tracks']).split(',')] if pd.notna(row['Top_Tracks']) else []
-                        skips = [x.strip().lower() for x in str(row['Skip_Tracks']).split(',')] if pd.notna(row['Skip_Tracks']) else []
+    # ------------------------------------------------------------------
+    # ABA 1: GALERIA (ESTILO VINIL)
+    # ------------------------------------------------------------------
+    with tab_gallery:
+        if df.empty:
+            st.info("Nenhum álbum na coleção.")
+        else:
+            # Filtros
+            filtro_gen = st.multiselect("Filtrar Gênero", df['Genero'].unique())
+            df_view = df if not filtro_gen else df[df['Genero'].isin(filtro_gen)]
+            
+            # Grid de Capas
+            cols = st.columns(4) # 4 Vinis por linha
+            for idx, (i, row) in enumerate(df_view.iterrows()):
+                with cols[idx % 4]:
+                    with st.container(border=True):
+                        # Capa do Álbum
+                        if row['Capa_URL']:
+                            st.image(row['Capa_URL'], use_column_width=True)
+                        else:
+                            st.image("https://via.placeholder.com/300?text=Vinyl", use_column_width=True)
                         
-                        for track in raw_tracks:
-                            track_clean = track.strip()
-                            if not track_clean: continue
+                        st.markdown(f"**{row['Album']}**")
+                        st.caption(f"{row['Artista']} ({row['Ano']})")
+                        
+                        # Nota Colorida
+                        color = "green" if row['Nota'] >= 9 else "orange" if row['Nota'] >= 7 else "red"
+                        st.markdown(f"Nota: :{color}[**{row['Nota']}**]")
+                        
+                        # Popover com Detalhes (O Verso do Vinil)
+                        with st.popover("🔎 Ver Encarte"):
+                            st.markdown(f"### {row['Album']}")
+                            st.write(f"**Review:** _{row['Review']}_")
                             
-                            # Lógica de Ícone (Busca substring)
-                            icon = "🎵" # Neutro
-                            style = "color: #b0b0b0;" # Cinza
+                            st.divider()
+                            st.markdown("#### 🎼 Tracklist & Veredito")
                             
-                            # Verifica se é Top
-                            for t in tops:
-                                if t and t in track_clean.lower():
-                                    icon = "🔥" # Ou ⭐
-                                    style = "color: #FFD700; font-weight: bold;" # Dourado
-                                    break
+                            # Processamento visual da tracklist
+                            tracks = str(row['Tracklist_Raw']).split('\n')
+                            tops = [t.strip().lower() for t in str(row['Top_Tracks']).split(',')]
+                            skips = [s.strip().lower() for s in str(row['Skip_Tracks']).split(',')]
                             
-                            # Verifica se é Skip
-                            for s in skips:
-                                if s and s in track_clean.lower():
-                                    icon = "⏭️" # Ou ❌
-                                    style = "color: #FF4B4B; text-decoration: line-through;" # Vermelho riscado
-                                    break
-                            
-                            st.markdown(f"<span style='{style}'>{icon} {track_clean}</span>", unsafe_allow_html=True)
+                            for t in tracks:
+                                icon = "⚫"
+                                style = "color: grey"
+                                t_lower = t.lower()
+                                
+                                # Lógica de Destaque
+                                is_top = any(fav in t_lower for fav in tops if fav)
+                                is_skip = any(sk in t_lower for sk in skips if sk)
+                                
+                                if is_top:
+                                    icon = "🔥"
+                                    style = "color: #FFD700; font-weight: bold"
+                                elif is_skip:
+                                    icon = "⏭️"
+                                    style = "color: #FF4B4B; text-decoration: line-through"
+                                    
+                                st.markdown(f"<span style='{style}'>{icon} {t}</span>", unsafe_allow_html=True)
+                                
+                            st.divider()
+                            if st.button("🗑️ Remover da Estante", key=f"del_{row['ID']}"):
+                                save_data(df.drop(i)); st.rerun()
+
+    # ------------------------------------------------------------------
+    # ABA 2: ADICIONAR (BUSCA AUTOMÁTICA)
+    # ------------------------------------------------------------------
+    with tab_add:
+        query = st.text_input("Buscar Álbum (Spotify)", placeholder="Ex: Dark Side of the Moon")
+        
+        if query and API_AVAILABLE:
+            results = search_album(query)
+            if results:
+                for album in results:
+                    with st.expander(f"{album['name']} - {album['artists'][0]['name']} ({album['release_date'][:4]})"):
+                        c1, c2 = st.columns([1, 3])
+                        if album['images']: c1.image(album['images'][0]['url'])
+                        
+                        with c2:
+                            if st.button("💿 Selecionar este Álbum", key=f"sel_{album['id']}"):
+                                # Pega detalhes completos (incluindo tracklist)
+                                details = get_album_details(album['id'])
+                                st.session_state['temp_album'] = details
+                                st.rerun()
+            else:
+                st.warning("Nenhum álbum encontrado.")
+
+        # Formulário de Avaliação (Abre se um álbum foi selecionado)
+        if 'temp_album' in st.session_state:
+            sel = st.session_state['temp_album']
+            st.divider()
+            st.subheader(f"Avaliar: {sel['Album']}")
+            
+            with st.form("save_album"):
+                c_gen, c_nota = st.columns(2)
+                genero = c_gen.selectbox("Gênero Principal", ["Rock", "Pop", "Jazz", "Hip-Hop", "Metal", "Indie", "Eletrônica", "R&B", "MPB", "Clássica"])
+                nota = c_nota.slider("Nota (0-10)", 0.0, 10.0, 8.0, 0.1)
                 
-                # Footer do Card
-                st.caption(f"Ouvido em: {row['Data_Ouvido']}")
-                if st.button("Remover", key=f"del_{row['ID']}"):
-                    df = df[df['ID'] != row['ID']]
+                review = st.text_area("Review Curta")
+                
+                st.markdown("---")
+                st.caption("Copie nomes da Tracklist abaixo para os campos de Top/Skip")
+                with st.expander("Ver Tracklist para Copiar"):
+                    st.text(sel['Tracklist_Raw'])
+                
+                top = st.text_input("🔥 Top Tracks (separar por vírgula)")
+                skip = st.text_input("⏭️ Skips (separar por vírgula)")
+                
+                if st.form_submit_button("💾 Salvar na Coleção"):
+                    new_id = 1 if df.empty else df['ID'].max() + 1
+                    novo_reg = {
+                        "ID": new_id,
+                        "Album": sel['Album'],
+                        "Artista": sel['Artista'],
+                        "Ano": sel['Ano'],
+                        "Genero": genero,
+                        "Capa_URL": sel['Capa_URL'],
+                        "Nota": nota,
+                        "Top_Tracks": top,
+                        "Skip_Tracks": skip,
+                        "Review": review,
+                        "Data_Ouvido": str(date.today()),
+                        "Tracklist_Raw": sel['Tracklist_Raw']
+                    }
+                    df = pd.concat([df, pd.DataFrame([novo_reg])], ignore_index=True)
                     save_data(df)
-                    st.rerun()
+                    del st.session_state['temp_album'] # Limpa seleção
+                    st.success("Vinil adicionado à estante!"); st.rerun()
+
+    # ------------------------------------------------------------------
+    # ABA 3: STATS
+    # ------------------------------------------------------------------
+    with tab_stats:
+        if not df.empty:
+            st.metric("Total de Discos", len(df))
+            st.markdown("#### Gêneros Mais Ouvidos")
+            st.bar_chart(df['Genero'].value_counts())
+            
+            # Melhores do Ano
+            best = df[df['Nota'] >= 9.0]
+            if not best.empty:
+                st.markdown("#### 🏆 Hall da Fama (Nota 9+)")
+                for _, row in best.iterrows():
+                    st.write(f"• **{row['Album']}** - {row['Artista']}")
