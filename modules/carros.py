@@ -158,16 +158,25 @@ def render_page():
                     del st.session_state['fipe_temp']
                     st.rerun()
 
-    # ------------------------------------------------------------------
-    # ABA 2: GARAGEM (LISTA SALVA)
+# ------------------------------------------------------------------
+    # ABA 2: GARAGEM (CORREÇÃO DE DIVISÃO POR ZERO)
     # ------------------------------------------------------------------
     with tab_garage:
         if df.empty:
             st.info("Garagem vazia.")
         else:
             for idx, row in df.iterrows():
-                delta = row['Preco_Negociado'] - row['Fipe_Ref']
-                delta_perc = (delta / row['Fipe_Ref']) * 100
+                # Conversão segura para float
+                fipe_val = float(row['Fipe_Ref'])
+                preco_neg = float(row['Preco_Negociado'])
+                
+                delta = preco_neg - fipe_val
+                
+                # --- GUARD CLAUSE: Evita divisão por zero ---
+                if fipe_val > 0:
+                    delta_perc = (delta / fipe_val) * 100
+                else:
+                    delta_perc = 0.0 # Se não tem FIPE, assume 0% de variação
                 
                 with st.container(border=True):
                     c_tit, c_kpi = st.columns([3, 2])
@@ -178,12 +187,17 @@ def render_page():
                         st.text(f"0-100: {row['Zero_Cem']}s | Consumo: {row['Consumo_Medio']} km/l")
                     
                     with c_kpi:
-                        if delta < 0:
-                            st.metric("Preço", f"R$ {row['Preco_Negociado']:,.2f}", f"{delta_perc:.1f}% abaixo FIPE", delta_color="normal")
+                        # Lógica visual segura
+                        if fipe_val > 0:
+                            if delta < 0:
+                                st.metric("Preço", f"R$ {preco_neg:,.2f}", f"{delta_perc:.1f}% abaixo FIPE", delta_color="normal")
+                            else:
+                                st.metric("Preço", f"R$ {preco_neg:,.2f}", f"+{delta_perc:.1f}% sobre FIPE", delta_color="inverse")
+                            st.caption(f"FIPE Ref: R$ {fipe_val:,.2f}")
                         else:
-                            st.metric("Preço", f"R$ {row['Preco_Negociado']:,.2f}", f"+{delta_perc:.1f}% sobre FIPE", delta_color="inverse")
-                        
-                        st.caption(f"FIPE Ref: R$ {row['Fipe_Ref']:,.2f}")
+                            # Caso onde FIPE é zero (provavelmente inserção manual ou erro de API)
+                            st.metric("Preço Pago", f"R$ {preco_neg:,.2f}")
+                            st.warning("⚠️ Sem referência FIPE cadastrada")
                     
                     # Botões de Ação
                     col_b1, col_b2 = st.columns(2)
@@ -194,7 +208,7 @@ def render_page():
                     if col_b2.button("🗑️ Deletar", key=f"del_{row['ID']}"):
                         df = df[df['ID'] != row['ID']]
                         save_data(df); st.rerun()
-
+                        
     # ------------------------------------------------------------------
     # ABA 3: COMPARATIVO (ENGENHARIA PURA)
     # ------------------------------------------------------------------
