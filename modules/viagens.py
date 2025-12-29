@@ -64,7 +64,7 @@ def render_page():
                 # Cria linha dummy para inicializar
                 row = {"Viagem": nome, "Categoria": "Setup", "Item": "Setup", "Valor_Final_BRL": 0.0, "Data_Ida": ida, "Data_Volta": volta, "Pago": True}
                 df_fin = pd.concat([df_fin, pd.DataFrame([row])], ignore_index=True)
-                save_data(df_fin, FILE_PATH)
+                save_data(df_fin, "Viagens_Fin")
                 st.rerun()
         else:
             if viagens:
@@ -99,7 +99,7 @@ def render_page():
                     "Valor_Final_BRL": val, "Pago": False, "Data_Ida": dates[0], "Data_Volta": dates[1]
                 }
                 df_fin = pd.concat([df_fin, pd.DataFrame([n])], ignore_index=True)
-                save_data(df_fin, FILE_PATH)
+                save_data(df_fin, "Viagens_Fin")
                 st.rerun()
                 
         edited = st.data_editor(df_trip[["Item", "Valor_Final_BRL", "Pago"]], key="edit_viagem", num_rows="dynamic")
@@ -125,7 +125,7 @@ def render_page():
                     "Data_Hora_Volta": datetime.combine(d_volta, h_volta), "Detalhes": det
                 }
                 df_log = pd.concat([df_log, pd.DataFrame([n])], ignore_index=True)
-                save_data(df_log, LOGISTICS_PATH)
+                save_data(df_log, "Viagens_Log")
                 st.rerun()
         
         # Cards
