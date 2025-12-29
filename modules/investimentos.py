@@ -6,38 +6,41 @@ from datetime import date
 from dateutil.relativedelta import relativedelta
 import os
 
-# --- ARQUIVOS ---
-PATH_INVEST = os.path.join('data', 'fin_investimentos.csv')
-PATH_TRANS = os.path.join('data', 'fin_transacoes.csv')
+from modules import conexoes
 
 def load_data():
-    if not os.path.exists(PATH_INVEST):
-        df_i = pd.DataFrame(columns=["Ativo", "Tipo", "Qtd", "Preco_Unitario", "Total_Pago", "Data_Compra"])
-    else:
-        df_i = pd.read_csv(PATH_INVEST)
-        # Saneamento de colunas antigas
-        if "Preco_Unitario" not in df_i.columns: 
-            if "Preco_Medio" in df_i.columns: df_i.rename(columns={"Preco_Medio": "Preco_Unitario"}, inplace=True)
-            else: df_i["Preco_Unitario"] = 0.0
-        
-        # Converte tipos numéricos forçadamente
-        df_i['Qtd'] = pd.to_numeric(df_i['Qtd'], errors='coerce').fillna(0)
-        df_i['Preco_Unitario'] = pd.to_numeric(df_i['Preco_Unitario'], errors='coerce').fillna(0.0)
-        
-        # Recalcula total atual
+    # 1. Investimentos
+    cols_inv = ["Ativo", "Tipo", "Qtd", "Preco_Unitario", "Total_Pago", "Data_Compra", "DY_Mensal", "Total_Atual"]
+    df_i = conexoes.load_gsheet("Investimentos", cols_inv)
+    
+    if not df_i.empty:
+        # Saneamento forçado para cálculos
+        for col in ["Qtd", "Preco_Unitario", "Total_Pago", "DY_Mensal", "Total_Atual"]:
+            if col in df_i.columns:
+                df_i[col] = pd.to_numeric(df_i[col], errors='coerce').fillna(0.0)
         df_i['Total_Atual'] = df_i['Qtd'] * df_i['Preco_Unitario']
 
-    if not os.path.exists(PATH_TRANS):
-        df_t = pd.DataFrame(columns=["Data", "Tipo", "Valor_Total"])
-    else:
-        df_t = pd.read_csv(PATH_TRANS)
+    # 2. Transações
+    cols_trans = ["Data", "Tipo", "Categoria", "Descricao", "Valor_Total", "Pagamento", "Qtd_Parcelas", "Recorrente", "Cartao_Ref"]
+    df_t = conexoes.load_gsheet("Transacoes", cols_trans)
+    if not df_t.empty:
+        df_t["Valor_Total"] = pd.to_numeric(df_t["Valor_Total"], errors='coerce').fillna(0.0)
 
     return df_i, df_t
 
 def save_data(df_inv, df_trans=None):
-    df_inv.to_csv(PATH_INVEST, index=False)
+    # Converte datas para string antes de enviar para a nuvem
+    df_inv_save = df_inv.copy()
+    if "Data_Compra" in df_inv_save.columns:
+        df_inv_save["Data_Compra"] = df_inv_save["Data_Compra"].astype(str)
+        
+    conexoes.save_gsheet("Investimentos", df_inv_save)
+    
     if df_trans is not None:
-        df_trans.to_csv(PATH_TRANS, index=False)
+        df_trans_save = df_trans.copy()
+        if "Data" in df_trans_save.columns:
+            df_trans_save["Data"] = df_trans_save["Data"].astype(str)
+        conexoes.save_gsheet("Transacoes", df_trans_save)
 
 def calcular_medias_financeiras(df_trans):
     if df_trans.empty: return 3000.0, 500.0

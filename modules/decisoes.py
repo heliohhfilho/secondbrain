@@ -63,10 +63,10 @@ def render_page():
                         st.success("Matriz sincronizada! Avalie abaixo.")
                         st.rerun()
 
-        # --- SELETOR E RESTANTE DA LÓGICA ---
-        if df.empty:
-            st.info("Nenhuma decisão cadastrada no Google Sheets.")
-            return
+            # --- SELETOR E RESTANTE DA LÓGICA ---
+            if df.empty:
+                st.info("Nenhuma decisão cadastrada no Google Sheets.")
+                return
 
     decisoes_unicas = df[['Decisao_ID', 'Titulo']].drop_duplicates().sort_values('Decisao_ID', ascending=False)
     

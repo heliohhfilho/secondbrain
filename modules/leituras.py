@@ -3,26 +3,29 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 
-FILE_PATH = os.path.join('data', 'leituras.csv')
+from modules import conexoes
 
 def load_data():
-    if not os.path.exists(FILE_PATH):
-        return pd.DataFrame(columns=["Titulo", "Autor", "Total_Paginas", "Paginas_Lidas", "Nota", "Status"])
-    return pd.read_csv(FILE_PATH)
+    cols = ["Titulo", "Autor", "Total_Paginas", "Paginas_Lidas", "Nota", "Status"]
+    df = conexoes.load_gsheet("Leituras", cols)
+    
+    if not df.empty:
+        # Saneamento de tipos para garantir cálculos de progresso e estimativas
+        df["Total_Paginas"] = pd.to_numeric(df["Total_Paginas"], errors='coerce').fillna(1).astype(int)
+        df["Paginas_Lidas"] = pd.to_numeric(df["Paginas_Lidas"], errors='coerce').fillna(0).astype(int)
+        df["Nota"] = pd.to_numeric(df["Nota"], errors='coerce').fillna(0).astype(int)
+        
+    return df
 
 def save_data(df):
-    df.to_csv(FILE_PATH, index=False)
+    # Salva na aba "Leituras" da planilha central
+    conexoes.save_gsheet("Leituras", df)
 
 def determine_status(lidas, total):
-    # Garante que não ultrapasse o total
     if lidas > total: lidas = total
-    
-    if lidas == 0:
-        return "Na Fila"
-    elif lidas >= total:
-        return "Concluído"
-    else:
-        return "Lendo"
+    if lidas == 0: return "Na Fila"
+    elif lidas >= total: return "Concluído"
+    else: return "Lendo"
 
 def render_page():
     st.header("📚 Biblioteca Pessoal")

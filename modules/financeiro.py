@@ -5,54 +5,45 @@ from dateutil.relativedelta import relativedelta
 import os
 import numpy as np
 
-# --- CAMINHOS DOS DADOS ---
-PATH_FIN_TRANS = os.path.join('data', 'fin_transacoes.csv')
-PATH_FIN_INVEST = os.path.join('data', 'fin_investimentos.csv')
-PATH_FIN_LOANS = os.path.join('data', 'fin_emprestimos_dividas.csv')
-PATH_FIN_CARDS = os.path.join('data', 'fin_cartoes.csv') # <--- Novo Caminho
+from modules import conexoes # <--- Conexão Nuvem
 
-DIA_FECHAMENTO_PADRAO = 5 # Fallback se não tiver cartão específico
+DIA_FECHAMENTO_PADRAO = 5 
 
 def load_data():
     # 1. Transações
-    if not os.path.exists(PATH_FIN_TRANS):
-        df_t = pd.DataFrame(columns=["Data", "Tipo", "Categoria", "Descricao", "Valor_Total", "Pagamento", "Qtd_Parcelas", "Recorrente", "Cartao_Ref"])
-    else:
-        df_t = pd.read_csv(PATH_FIN_TRANS)
-        if "Qtd_Parcelas" not in df_t.columns: df_t["Qtd_Parcelas"] = 1
-        df_t["Qtd_Parcelas"] = df_t["Qtd_Parcelas"].fillna(1).astype(int)
-        if "Recorrente" not in df_t.columns: df_t["Recorrente"] = False
-        df_t["Recorrente"] = df_t["Recorrente"].fillna(False)
-        # Coluna nova para vincular ao cartão específico
-        if "Cartao_Ref" not in df_t.columns: df_t["Cartao_Ref"] = None
-
+    cols_t = ["Data", "Tipo", "Categoria", "Descricao", "Valor_Total", "Pagamento", "Qtd_Parcelas", "Recorrente", "Cartao_Ref"]
+    df_t = conexoes.load_gsheet("Transacoes", cols_t)
+    if not df_t.empty:
+        df_t["Qtd_Parcelas"] = pd.to_numeric(df_t["Qtd_Parcelas"], errors='coerce').fillna(1).astype(int)
+        df_t["Valor_Total"] = pd.to_numeric(df_t["Valor_Total"], errors='coerce').fillna(0.0)
+        df_t["Recorrente"] = df_t["Recorrente"].astype(str).str.upper() == "TRUE"
+    
     # 2. Investimentos
-    if not os.path.exists(PATH_FIN_INVEST):
-        df_i = pd.DataFrame(columns=["Ativo", "Tipo", "Qtd", "Preco_Unitario", "Total_Pago", "Data_Compra"])
-    else:
-        df_i = pd.read_csv(PATH_FIN_INVEST)
-        if "Preco_Unitario" not in df_i.columns: 
-            if "Preco_Medio" in df_i.columns: df_i.rename(columns={"Preco_Medio": "Preco_Unitario"}, inplace=True)
-            else: df_i["Preco_Unitario"] = 0.0
+    cols_i = ["Ativo", "Tipo", "Qtd", "Preco_Unitario", "Total_Pago", "Data_Compra", "DY_Mensal", "Total_Atual"]
+    df_i = conexoes.load_gsheet("Investimentos", cols_i)
+    if not df_i.empty:
+        cols_num = ["Qtd", "Preco_Unitario", "Total_Pago", "DY_Mensal", "Total_Atual"]
+        for c in cols_num: df_i[c] = pd.to_numeric(df_i[c], errors='coerce').fillna(0.0)
 
     # 3. Empréstimos
-    if not os.path.exists(PATH_FIN_LOANS):
-        df_l = pd.DataFrame(columns=["ID", "Nome", "Valor_Original", "Valor_Parcela", "Parcelas_Totais", "Parcelas_Pagas", "Dia_Vencimento", "Status", "Data_Inicio"])
-    else:
-        df_l = pd.read_csv(PATH_FIN_LOANS)
-        if "Valor_Original" not in df_l.columns: df_l["Valor_Original"] = df_l["Valor_Parcela"] * df_l["Parcelas_Totais"]
-        if "Dia_Vencimento" not in df_l.columns: df_l["Dia_Vencimento"] = 10
-        
-    # 4. Cartões (Novo Load)
-    if not os.path.exists(PATH_FIN_CARDS):
-        df_c = pd.DataFrame(columns=["ID", "Nome", "Dia_Fechamento"]) # Minimo necessario
-    else:
-        df_c = pd.read_csv(PATH_FIN_CARDS)
+    cols_l = ["ID", "Nome", "Valor_Original", "Valor_Parcela", "Parcelas_Totais", "Parcelas_Pagas", "Dia_Vencimento", "Status", "Data_Inicio"]
+    df_l = conexoes.load_gsheet("Emprestimos", cols_l)
+    if not df_l.empty:
+        df_l["ID"] = pd.to_numeric(df_l["ID"], errors='coerce').fillna(0).astype(int)
+        for c in ["Valor_Original", "Valor_Parcela", "Parcelas_Totais", "Parcelas_Pagas", "Dia_Vencimento"]:
+            df_l[c] = pd.to_numeric(df_l[c], errors='coerce').fillna(0)
+
+    # 4. Cartões (Lê da aba que já criamos no módulo de Cartões)
+    df_c = conexoes.load_gsheet("Cartoes", ["ID", "Nome", "Dia_Fechamento"])
 
     return df_t, df_i, df_l, df_c
 
-def save_csv(df, path):
-    df.to_csv(path, index=False)
+def save_data(df, aba):
+    df_save = df.copy()
+    # Converte colunas sensíveis para string antes do upload
+    for col in ["Data", "Data_Compra", "Data_Inicio"]:
+        if col in df_save.columns: df_save[col] = df_save[col].astype(str)
+    conexoes.save_gsheet(aba, df_save)
 
 def get_proximo_vencimento(dia_vencimento):
     hoje = date.today()

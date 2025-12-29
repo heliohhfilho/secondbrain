@@ -3,19 +3,28 @@ import pandas as pd
 from datetime import date
 import os
 
-# --- ARQUIVOS ---
-PATH_HOBBIES = os.path.join('data', 'hobbies_projetos.csv')
+from modules import conexoes
 
 def load_data():
-    if not os.path.exists(PATH_HOBBIES):
-        return pd.DataFrame(columns=[
-            "ID", "Nome", "Categoria", "Status", "Progresso_Perc", 
-            "Materiais_Nec", "Link_Ref", "Data_Inicio", "Notas"
-        ])
-    return pd.read_csv(PATH_HOBBIES)
+    cols = [
+        "ID", "Nome", "Categoria", "Status", "Progresso_Perc", 
+        "Materiais_Nec", "Link_Ref", "Data_Inicio", "Notas"
+    ]
+    df = conexoes.load_gsheet("Hobbies", cols)
+    
+    if not df.empty:
+        # Saneamento técnico para os componentes visuais
+        df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
+        df["Progresso_Perc"] = pd.to_numeric(df["Progresso_Perc"], errors='coerce').fillna(0).astype(int)
+        
+    return df
 
 def save_data(df):
-    df.to_csv(PATH_HOBBIES, index=False)
+    # Converte tipos para GSheets (Datas para string)
+    df_save = df.copy()
+    if "Data_Inicio" in df_save.columns:
+        df_save["Data_Inicio"] = df_save["Data_Inicio"].astype(str)
+    conexoes.save_gsheet("Hobbies", df_save)
 
 def get_icon(categoria):
     icons = {
