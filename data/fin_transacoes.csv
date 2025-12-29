@@ -1,6 +1,0 @@
-Data,Tipo,Descricao,Valor_Total,Qtd_Parcelas,Cartao_Ref,Categoria,Viagem_Ref,Fonte_Receita,Pagamento,Recorrente
-2025-12-12 00:00:00,Cartao,Lux Tour,530.72,8,Pan,Lazer,,-,,False
-2026-01-05 00:00:00,Receita,Salário,1500.0,1,-,Salário,,-,,False
-2026-01-05 00:00:00,Receita,Vale Alimentação,966.0,1,-,Salário,,-,,False
-2025-12-29,Aporte Investimento,Compra AAZQ11 (1.0x),8.71,1,,Investimentos,,,Pix,False
-2025-12-29,Despesa Fixa,Compra: Colchão,600.0,1,,Compras/Wishlist,,,Crédito,False

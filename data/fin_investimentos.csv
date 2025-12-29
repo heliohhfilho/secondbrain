@@ -1,7 +1,0 @@
-Ticker,Tipo,Qtd,Preco_Unitario,DY_Mensal_Unit,Ultimo_Rendimento,Renda_Item,Data_Compra,Total_Pago,Ativo,Total_Atual,Macro_Tipo
-AAZQ11,FII,1.0,8.71,0.15,,,2025-11-05,8.71,,8.71,FII
-VGIR11,FII,1.0,9.82,0.12,,,2025-11-05,9.82,,9.82,FII
-VRTM11,FII,1.0,7.06,0.08,,,2025-11-05,7.06,,7.06,FII
-SNAG11,FII,1.0,10.87,0.13,,,2025-11-05,10.87,,10.87,FII
-MXRF11,FII,1.0,9.54,0.1,,,2025-11-05,9.54,,9.54,FII
-AAZQ11,FII,1.0,8.71,0.15,,,2025-12-29,8.71,AAZQ11,8.71,FII

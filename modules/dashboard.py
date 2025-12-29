@@ -8,6 +8,7 @@ import os
 
 from modules import conexoes
 
+@st.cache_data(ttl=600)
 def load_all_data():
     # 1. Financeiro & Trade
     df_trans = conexoes.load_gsheet("Transacoes", ["Data", "Tipo", "Valor_Total", "Categoria"])
