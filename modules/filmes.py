@@ -3,14 +3,14 @@ import pandas as pd
 import plotly.express as px
 from datetime import date
 import os
-from modules import conexao # <--- Conexão Nuvem
+from modules import conexoes # <--- Conexão Nuvem
 
 def load_data():
     cols = [
         "ID", "Titulo", "Diretor", "Genero", "Ano", 
         "Onde_Assistir", "Status", "Nota_0_10", "Review", "Data_Add"
     ]
-    df = conexao.load_gsheet("Filmes", cols)
+    df = conexoes.load_gsheet("Filmes", cols)
     
     if not df.empty:
         # Saneamento para cálculos estatísticos e visualização
@@ -27,7 +27,7 @@ def save_data(df):
     df_save = df.copy()
     if "Data_Add" in df_save.columns:
         df_save["Data_Add"] = df_save["Data_Add"].astype(str)
-    conexao.save_gsheet("Filmes", df_save)
+    conexoes.save_gsheet("Filmes", df_save)
 
 def render_page():
     st.header("🎬 Cinephile Tracker")

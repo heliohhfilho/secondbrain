@@ -5,55 +5,47 @@ import os
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut
 
-# --- ARQUIVOS ---
-FILE_PATH = os.path.join('data', 'viagens.csv')
-LOGISTICS_PATH = os.path.join('data', 'viagens_logistica.csv')
-HOTELS_PATH = os.path.join('data', 'viagens_hoteis.csv')
+from modules import conexoes # <--- Conexão Nuvem
 
-# --- FUNÇÕES ---
-def load_data(path, columns):
-    if not os.path.exists(path):
+def load_data_sheet(aba, columns):
+    # Carrega da nuvem
+    df = conexoes.load_gsheet(aba, columns)
+    
+    # --- AUTO-CORREÇÃO DE SCHEMA (Mantido para Nuvem) ---
+    if df.empty:
         return pd.DataFrame(columns=columns)
     
-    df = pd.read_csv(path)
-    
-    # --- AUTO-CORREÇÃO DE SCHEMA (FIX PARA KEYERROR) ---
     for col in columns:
         if col not in df.columns:
-            # Se a coluna nova não existe, cria ela com valor padrão
             if "Valor" in col or "Cotacao" in col or "lat" in col or "lon" in col:
                 df[col] = 0.0
-            elif col == "Moeda":
-                df[col] = "BRL"
-            elif col == "Pago":
-                df[col] = False
-            else:
-                df[col] = "" # Texto vazio para colunas de texto
-                
-    # Garante tipagem correta para evitar NAN visual
+            elif col == "Moeda": df[col] = "BRL"
+            elif col == "Pago": df[col] = "FALSE"
+            else: df[col] = ""
+            
+    # Saneamento de Tipos para cálculos
     if "Valor_Final_BRL" in df.columns:
-        df["Valor_Final_BRL"] = df["Valor_Final_BRL"].fillna(0.0)
-    
+        df["Valor_Final_BRL"] = pd.to_numeric(df["Valor_Final_BRL"], errors='coerce').fillna(0.0)
+    if "Pago" in df.columns:
+        df["Pago"] = df["Pago"].astype(str).str.upper() == "TRUE"
+        
     return df
 
-def save_data(df, path):
-    df.to_csv(path, index=False)
-
-def get_lat_lon(endereco):
-    geolocator = Nominatim(user_agent="second_brain_app_fix")
-    try:
-        location = geolocator.geocode(endereco, timeout=10)
-        if location: return location.latitude, location.longitude
-    except: pass
-    return None, None
+def save_data(df, aba):
+    df_save = df.copy()
+    # Converte datas e booleanos para string antes do upload
+    for col in df_save.columns:
+        if "Data" in col or "Check" in col or "Pago" in col:
+            df_save[col] = df_save[col].astype(str)
+    conexoes.save_gsheet(aba, df_save)
 
 def render_page():
     st.header("🌍 Travel CRM & Intelligence")
     
-    # Carrega com Schema Blindado
-    df_fin = load_data(FILE_PATH, ["Viagem", "Categoria", "Item", "Valor_Moeda_Original", "Moeda", "Cotacao", "Valor_Final_BRL", "Pago", "Data_Ida", "Data_Volta"])
-    df_log = load_data(LOGISTICS_PATH, ["Viagem", "Tipo", "Origem", "Destino", "Data_Hora_Ida", "Data_Hora_Volta", "Detalhes"])
-    df_hotels = load_data(HOTELS_PATH, ["Viagem", "Nome", "Endereco", "Checkin", "Checkout", "lat", "lon"])
+    # Carregamento via Google Sheets
+    df_fin = load_data_sheet("Viagens_Fin", ["Viagem", "Categoria", "Item", "Valor_Moeda_Original", "Moeda", "Cotacao", "Valor_Final_BRL", "Pago", "Data_Ida", "Data_Volta"])
+    df_log = load_data_sheet("Viagens_Log", ["Viagem", "Tipo", "Origem", "Destino", "Data_Hora_Ida", "Data_Hora_Volta", "Detalhes"])
+    df_hotels = load_data_sheet("Viagens_Hot", ["Viagem", "Nome", "Endereco", "Checkin", "Checkout", "lat", "lon"])
 
     with st.sidebar:
         st.subheader("✈️ Seleção")

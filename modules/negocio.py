@@ -4,39 +4,41 @@ import plotly.express as px
 from datetime import date, timedelta
 import os
 
-# --- ARQUIVOS ---
-PATH_CLIENTES = os.path.join('data', 'crm_clientes.csv')
-PATH_DEALS = os.path.join('data', 'crm_deals.csv')
-PATH_FINANCEIRO = os.path.join('data', 'fin_transacoes.csv') 
+from modules import conexoes
 
 def load_data():
     # 1. Clientes
-    if not os.path.exists(PATH_CLIENTES):
-        df_c = pd.DataFrame(columns=["ID", "Nome", "Empresa", "Cargo", "Email", "Telefone", "Origem", "LinkedIn_Url", "Data_Cadastro"])
-    else:
-        df_c = pd.read_csv(PATH_CLIENTES)
-
-    # 2. Deals (Com coluna de controle de Faturamento)
-    if not os.path.exists(PATH_DEALS):
-        df_d = pd.DataFrame(columns=["ID", "Cliente", "Projeto", "Valor_Est", "Estagio", "Probabilidade", "Data_Inicio", "Previsao_Fechamento", "Obs", "Faturado_Check"])
-    else:
-        df_d = pd.read_csv(PATH_DEALS)
-        if "Faturado_Check" not in df_d.columns:
-            df_d["Faturado_Check"] = False 
+    cols_c = ["ID", "Nome", "Empresa", "Cargo", "Email", "Telefone", "Origem", "LinkedIn_Url", "Data_Cadastro"]
+    df_c = conexoes.load_gsheet("CRM_Clientes", cols_c)
+    
+    # 2. Deals
+    cols_d = ["ID", "Cliente", "Projeto", "Valor_Est", "Estagio", "Probabilidade", "Data_Inicio", "Previsao_Fechamento", "Obs", "Faturado_Check"]
+    df_d = conexoes.load_gsheet("CRM_Deals", cols_d)
+    
+    # Saneamento de Tipos
+    if not df_d.empty:
+        df_d["Valor_Est"] = pd.to_numeric(df_d["Valor_Est"], errors='coerce').fillna(0.0)
+        df_d["Faturado_Check"] = df_d["Faturado_Check"].astype(str).str.upper() == "TRUE"
+    if not df_c.empty:
+        df_c["ID"] = pd.to_numeric(df_c["ID"], errors='coerce').fillna(0).astype(int)
         
     return df_c, df_d
 
-def save_csv(df, path):
-    df.to_csv(path, index=False)
+def save_data(df, aba):
+    # Converte tipos para garantir compatibilidade com GSheets
+    df_save = df.copy()
+    # Converte colunas de data/bool para string antes do upload
+    for col in ["Data_Cadastro", "Data_Inicio", "Previsao_Fechamento"]:
+        if col in df_save.columns: df_save[col] = df_save[col].astype(str)
+    conexoes.save_gsheet(aba, df_save)
 
 def lancar_no_financeiro(descricao, valor, data_ref):
-    if not os.path.exists(PATH_FINANCEIRO):
-        df_fin = pd.DataFrame(columns=["Data", "Tipo", "Categoria", "Descricao", "Valor_Total", "Pagamento"])
-    else:
-        df_fin = pd.read_csv(PATH_FINANCEIRO)
+    # Puxa transações existentes para anexar a nova receita
+    cols_f = ["Data", "Tipo", "Categoria", "Descricao", "Valor_Total", "Pagamento"]
+    df_fin = conexoes.load_gsheet("Transacoes", cols_f)
     
     nova_transacao = {
-        "Data": data_ref,
+        "Data": str(data_ref),
         "Tipo": "Receita",
         "Categoria": "Negócios/Freelance",
         "Descricao": f"Projeto: {descricao}",
@@ -44,8 +46,8 @@ def lancar_no_financeiro(descricao, valor, data_ref):
         "Pagamento": "Pix/Transf"
     }
     
-    df_fin = pd.concat([df_fin, pd.DataFrame([nova_transacao])], ignore_index=True)
-    df_fin.to_csv(PATH_FINANCEIRO, index=False)
+    df_updated = pd.concat([df_fin, pd.DataFrame([nova_transacao])], ignore_index=True)
+    conexoes.save_gsheet("Transacoes", df_updated)
     return True
 
 def render_page():
@@ -71,7 +73,7 @@ def render_page():
                         "Origem": c_origem, "Data_Cadastro": date.today()
                     }
                     df_clientes = pd.concat([df_clientes, pd.DataFrame([novo])], ignore_index=True)
-                    save_csv(df_clientes, PATH_CLIENTES)
+                    save_data(df_clientes, "CRM_Clientes")
                     st.success("Cliente salvo!")
                     st.rerun()
 
@@ -93,7 +95,7 @@ def render_page():
                             "Faturado_Check": False 
                         }
                         df_deals = pd.concat([df_deals, pd.DataFrame([novo])], ignore_index=True)
-                        save_csv(df_deals, PATH_DEALS)
+                        save_data(df_deals, "CRM_Deals")
                         st.success("Deal criado!")
                         st.rerun()
 
@@ -152,7 +154,7 @@ def render_page():
                             edited_deals.at[idx, 'Faturado_Check'] = True
                             st.toast(f"💸 KA-CHING! R$ {row['Valor_Est']} lançado no Financeiro!", icon="🤑")
                 
-                save_csv(edited_deals, PATH_DEALS)
+                save_data(edited_deals, "CRM_Deals")
                 st.rerun()
 
             # 2. EXCLUSÃO (Área Dedicada)
@@ -165,7 +167,7 @@ def render_page():
                 if col_btn_del.button("Excluir Deal"):
                     id_del = int(deal_to_delete.split("|")[0].replace("ID ", "").strip())
                     df_deals = df_deals[df_deals['ID'] != id_del]
-                    save_csv(df_deals, PATH_DEALS)
+                    save_data(df_deals, "CRM_Deals")
                     st.success("Deal removido.")
                     st.rerun()
         else:
@@ -185,7 +187,7 @@ def render_page():
             )
             
             if not df_clientes.equals(edited_clients):
-                save_csv(edited_clients, PATH_CLIENTES)
+                save_data(edited_deals, "CRM_Deals")
                 st.toast("Dados do cliente atualizados!")
                 st.rerun()
             
@@ -202,7 +204,7 @@ def render_page():
                         st.error(f"Não é possível excluir: Existem {deals_vinculados} deals vinculados a este cliente.")
                     else:
                         df_clientes = df_clientes[df_clientes['Nome'] != cliente_to_del]
-                        save_csv(df_clientes, PATH_CLIENTES)
+                        save_data(df_clientes, "CRM_Deals")
                         st.success("Cliente removido da base.")
                         st.rerun()
         else:

@@ -2,32 +2,39 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import os
-import uuid # Para gerar IDs únicos e garantir integridade relacional
+import uuid
 
-# --- CAMINHOS DOS ARQUIVOS ---
-PROJETOS_PATH = os.path.join('data', 'projetos.csv')
-TAREFAS_PATH = os.path.join('data', 'tarefas_projetos.csv')
+from modules import conexoes
 
-# --- FUNÇÕES DE BANCO DE DADOS ---
 def load_data():
-    # Projetos: ID, Nome, Descricao, Data_Inicio, Status (Ativo/Arquivado)
-    if not os.path.exists(PROJETOS_PATH):
-        df_proj = pd.DataFrame(columns=["ID", "Nome", "Descricao", "Data_Inicio", "Status"])
-    else:
-        df_proj = pd.read_csv(PROJETOS_PATH)
-
-    # Tarefas: ID, Projeto_ID, Nome, Status (Backlog, Dev, Done), Data_Inicio, Data_Fim
-    if not os.path.exists(TAREFAS_PATH):
-        df_task = pd.DataFrame(columns=["ID_Tarefa", "Projeto_ID", "Nome", "Status", "Data_Inicio", "Data_Fim"])
-    else:
-        df_task = pd.read_csv(TAREFAS_PATH)
+    # 1. Projetos
+    cols_proj = ["ID", "Nome", "Descricao", "Data_Inicio", "Status"]
+    df_proj = conexoes.load_gsheet("Projetos", cols_proj)
+    
+    # 2. Tarefas
+    cols_task = ["ID_Tarefa", "Projeto_ID", "Nome", "Status", "Data_Inicio", "Data_Fim"]
+    df_task = conexoes.load_gsheet("Tarefas_Projetos", cols_task)
+    
+    # Saneamento técnico para garantir integridade no Kanban
+    if not df_task.empty:
+        # Garante que datas nulas não quebrem o sistema
+        df_task["Data_Fim"] = df_task["Data_Fim"].replace("", None)
         
     return df_proj, df_task
 
 def save_data(df_proj, df_task):
-    df_proj.to_csv(PROJETOS_PATH, index=False)
-    df_task.to_csv(TAREFAS_PATH, index=False)
+    # Prepara dados para o GSheets (converte datas para string)
+    df_p_save = df_proj.copy()
+    df_t_save = df_task.copy()
+    
+    for col in ["Data_Inicio", "Data_Fim"]:
+        if col in df_p_save.columns: df_p_save[col] = df_p_save[col].astype(str)
+        if col in df_t_save.columns: df_t_save[col] = df_t_save[col].astype(str)
+            
+    conexoes.save_gsheet("Projetos", df_p_save)
+    conexoes.save_gsheet("Tarefas_Projetos", df_t_save)
 
+# --- ENGINE DE CÁLCULO (Permanece igual, mas certifique-se de tratar tipos) ---
 def calculate_progress(proj_id, df_tasks):
     tasks_proj = df_tasks[df_tasks['Projeto_ID'] == proj_id]
     if tasks_proj.empty:

@@ -4,19 +4,35 @@ import plotly.express as px
 from datetime import date
 import os
 
+from modules import conexoes
+
 PATH_MUSICA = os.path.join('data', 'musica_log.csv')
 
 def load_data():
-    if not os.path.exists(PATH_MUSICA):
-        return pd.DataFrame(columns=[
-            "ID", "Album", "Artista", "Genero", "Ano_Lancamento",
-            "Nota_0_10", "Top_Tracks", "Skip_Tracks", "Review_Curta", 
-            "Data_Ouvido", "Tracklist_Raw" # Nova coluna
-        ])
-    return pd.read_csv(PATH_MUSICA)
+    cols = [
+        "ID", "Album", "Artista", "Genero", "Ano_Lancamento",
+        "Nota_0_10", "Top_Tracks", "Skip_Tracks", "Review_Curta", 
+        "Data_Ouvido", "Tracklist_Raw"
+    ]
+    df = conexoes.load_gsheet("Musica", cols)
+    
+    if not df.empty:
+        # Saneamento de tipos para métricas e sliders
+        df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
+        df["Nota_0_10"] = pd.to_numeric(df["Nota_0_10"], errors='coerce').fillna(0.0)
+        df["Ano_Lancamento"] = pd.to_numeric(df["Ano_Lancamento"], errors='coerce').fillna(2025).astype(int)
+    return df
 
 def save_data(df):
-    df.to_csv(PATH_MUSICA, index=False)
+    # Converte tipos para GSheets (Datas e Texto Longo)
+    df_save = df.copy()
+    if "Data_Ouvido" in df_save.columns:
+        df_save["Data_Ouvido"] = df_save["Data_Ouvido"].astype(str)
+    # Garante que a tracklist seja salva como string pura
+    if "Tracklist_Raw" in df_save.columns:
+        df_save["Tracklist_Raw"] = df_save["Tracklist_Raw"].astype(str)
+        
+    conexoes.save_gsheet("Musica", df_save)
 
 def render_page():
     st.header("🎧 Sound Lab: Music Tracker")

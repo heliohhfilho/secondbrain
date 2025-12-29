@@ -3,75 +3,59 @@ import pandas as pd
 from datetime import date, datetime, timedelta
 import os
 
-# --- ARQUIVOS DE DADOS (Conectores) ---
-PATH_METAS = os.path.join('data', 'metas_okr.csv')
-# Fontes de Dados
-PATH_FIN_INVEST = os.path.join('data', 'fin_investimentos.csv')
-PATH_LEITURAS = os.path.join('data', 'leituras.csv')
-PATH_BIO = os.path.join('data', 'bio_data.csv')
-PATH_DAYTRADE = os.path.join('data', 'daytrade.csv')
-PATH_CRM = os.path.join('data', 'crm_deals.csv')
-PATH_PROD = os.path.join('data', 'log_produtividade.csv')
+from modules import conexoes
 
 def load_data():
-    # Carrega Metas
-    if not os.path.exists(PATH_METAS):
-        df = pd.DataFrame(columns=["ID", "Titulo", "Tipo_Vinculo", "Meta_Valor", "Unidade", "Deadline", "Progresso_Manual"])
-    else:
-        df = pd.read_csv(PATH_METAS)
+    # 1. Carrega Metas Principais
+    cols_metas = ["ID", "Titulo", "Tipo_Vinculo", "Meta_Valor", "Unidade", "Deadline", "Progresso_Manual"]
+    df = conexoes.load_gsheet("Metas", cols_metas)
+    
+    if not df.empty:
+        df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
+        df["Meta_Valor"] = pd.to_numeric(df["Meta_Valor"], errors='coerce').fillna(0.0)
+        df["Progresso_Manual"] = pd.to_numeric(df["Progresso_Manual"], errors='coerce').fillna(0.0)
 
-    # Carrega Dados Externos (Para cálculo automático)
+    # 2. Busca Dados Externos na Nuvem para OKRs Automáticos
     dados_externos = {}
     
-    # 1. Financeiro (Total Investido)
-    if os.path.exists(PATH_FIN_INVEST):
-        df_inv = pd.read_csv(PATH_FIN_INVEST)
-        if "Preco_Medio" in df_inv.columns: df_inv.rename(columns={"Preco_Medio": "Preco_Unitario"}, inplace=True)
-        if "Preco_Unitario" not in df_inv.columns: df_inv["Preco_Unitario"] = 0.0
-        total_inv = (df_inv['Qtd'] * df_inv['Preco_Unitario']).sum()
-        dados_externos['Investimento Total'] = total_inv
-    else:
-        dados_externos['Investimento Total'] = 0.0
-
-    # 2. Leitura (Livros Lidos)
-    if os.path.exists(PATH_LEITURAS):
-        df_l = pd.read_csv(PATH_LEITURAS)
-        lidos = len(df_l[df_l['Status'] == 'Concluído'])
-        dados_externos['Livros Lidos'] = lidos
-    else:
-        dados_externos['Livros Lidos'] = 0
-
-    # 3. Bio (Peso e Gordura)
-    if os.path.exists(PATH_BIO):
-        df_b = pd.read_csv(PATH_BIO)
-        if not df_b.empty:
-            df_b = df_b.sort_values("Data")
-            dados_externos['Peso Atual'] = df_b.iloc[-1]['Peso_kg']
-            dados_externos['BF Atual'] = df_b.iloc[-1]['Gordura_Perc']
-        else:
-            dados_externos['Peso Atual'] = 0
-            dados_externos['BF Atual'] = 0
+    # OKR: Financeiro
+    df_inv = conexoes.load_gsheet("Investimentos", ["Qtd", "Preco_Unitario"])
+    if not df_inv.empty:
+        df_inv["Qtd"] = pd.to_numeric(df_inv["Qtd"], errors='coerce').fillna(0)
+        df_inv["Preco_Unitario"] = pd.to_numeric(df_inv["Preco_Unitario"], errors='coerce').fillna(0)
+        dados_externos['Investimento Total'] = (df_inv['Qtd'] * df_inv['Preco_Unitario']).sum()
     
-    # 4. DayTrade (Lucro Acumulado)
-    if os.path.exists(PATH_DAYTRADE):
-        df_dt = pd.read_csv(PATH_DAYTRADE)
-        lucro = df_dt['Lucro'].sum()
-        dados_externos['Lucro Trade'] = lucro
-    else:
-        dados_externos['Lucro Trade'] = 0
-        
-    # 5. CRM (Faturamento)
-    if os.path.exists(PATH_CRM):
-        df_crm = pd.read_csv(PATH_CRM)
-        fat = df_crm[df_crm['Estagio'] == "5. Fechado (Ganho)"]['Valor_Est'].sum()
-        dados_externos['Faturamento'] = fat
-    else:
-        dados_externos['Faturamento'] = 0
+    # OKR: Leituras
+    df_l = conexoes.load_gsheet("Leituras", ["Status"])
+    dados_externos['Livros Lidos'] = len(df_l[df_l['Status'] == 'Concluído']) if not df_l.empty else 0
+
+    # OKR: Bio (Saúde)
+    df_b = conexoes.load_gsheet("Bio", ["Data", "Peso_kg", "Gordura_Perc"])
+    if not df_b.empty:
+        df_b['Data'] = pd.to_datetime(df_b['Data'], errors='coerce')
+        last_bio = df_b.sort_values("Data").iloc[-1]
+        dados_externos['Peso Atual'] = pd.to_numeric(last_bio['Peso_kg'], errors='coerce')
+        dados_externos['BF Atual'] = pd.to_numeric(last_bio['Gordura_Perc'], errors='coerce')
+
+    # OKR: DayTrade
+    df_dt = conexoes.load_gsheet("DayTrade", ["Lucro"])
+    if not df_dt.empty:
+        dados_externos['Lucro Trade'] = pd.to_numeric(df_dt['Lucro'], errors='coerce').sum()
+
+    # OKR: CRM (Negócios)
+    df_crm = conexoes.load_gsheet("CRM", ["Estagio", "Valor_Est"])
+    if not df_crm.empty:
+        ganhos = df_crm[df_crm['Estagio'] == "5. Fechado (Ganho)"]
+        dados_externos['Faturamento'] = pd.to_numeric(ganhos['Valor_Est'], errors='coerce').sum()
 
     return df, dados_externos
 
 def save_data(df):
-    df.to_csv(PATH_METAS, index=False)
+    # Converte datas para string para o GSheets
+    df_save = df.copy()
+    if "Deadline" in df_save.columns:
+        df_save["Deadline"] = df_save["Deadline"].astype(str)
+    conexoes.save_gsheet("Metas", df_save)
 
 def calcular_status(tipo, meta, manual, externos):
     atual = 0.0

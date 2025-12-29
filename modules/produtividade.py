@@ -4,81 +4,80 @@ from datetime import datetime, date, timedelta
 import os
 import plotly.express as px
 
-# --- ARQUIVOS DE DADOS ---
-PATH_TAREFAS = os.path.join('data', 'tarefas.csv')
-PATH_LOG = os.path.join('data', 'log_produtividade.csv')
-PATH_HABITOS_CONFIG = os.path.join('data', 'habitos_config.csv') # Configuração (O que rastrear)
-PATH_HABITOS_CHECK = os.path.join('data', 'habitos_log.csv')     # Check-ins (Histórico)
-# Caminhos para integração
-PATH_LEITURAS = os.path.join('data', 'leituras.csv')
-PATH_CURSOS = os.path.join('data', 'cursos.csv')
-PATH_FACULDADE = os.path.join('data', 'faculdade.csv')
-
+from modules import conexoes
 def load_data():
-    # Tarefas
-    if not os.path.exists(PATH_TAREFAS):
-        df_t = pd.DataFrame(columns=["Tarefa", "Data", "Concluido", "Prioridade"])
-    else:
-        df_t = pd.read_csv(PATH_TAREFAS)
+    # 1. Tarefas
+    cols_t = ["Tarefa", "Data", "Concluido", "Prioridade"]
+    df_t = conexoes.load_gsheet("Tarefas", cols_t)
+    if not df_t.empty:
+        df_t["Concluido"] = df_t["Concluido"].astype(str).str.upper() == "TRUE"
         
-    # Log de Deep Work
-    if not os.path.exists(PATH_LOG):
-        df_log = pd.DataFrame(columns=["Data", "Tipo", "Subtipo", "Valor", "Unidade", "Detalhe"])
-    else:
-        df_log = pd.read_csv(PATH_LOG)
+    # 2. Log de Produtividade (Deep Work)
+    cols_log = ["Data", "Tipo", "Subtipo", "Valor", "Unidade", "Detalhe"]
+    df_log = conexoes.load_gsheet("Log_Produtividade", cols_log)
+    if not df_log.empty:
+        df_log["Valor"] = pd.to_numeric(df_log["Valor"], errors='coerce').fillna(0)
 
-    # Configuração de Hábitos (Quais existem)
-    if not os.path.exists(PATH_HABITOS_CONFIG):
-        # Cria defaults se não existir
+    # 3. Configuração de Hábitos
+    cols_h_conf = ["Habito", "Categoria", "Ativo"]
+    df_h_conf = conexoes.load_gsheet("Habitos_Config", cols_h_conf)
+    if df_h_conf.empty:
         defaults = [
-            {"Habito": "Acordar às 06h", "Categoria": "Rotina", "Ativo": True},
-            {"Habito": "Ler Bíblia", "Categoria": "Espiritual", "Ativo": True},
-            {"Habito": "Exercício Físico", "Categoria": "Saúde", "Ativo": True},
-            {"Habito": "Ler (10 min)", "Categoria": "Intelecto", "Ativo": True},
-            {"Habito": "Checar Investimentos", "Categoria": "Finanças", "Ativo": True},
+            {"Habito": "Acordar às 06h", "Categoria": "Rotina", "Ativo": "True"},
+            {"Habito": "Exercício Físico", "Categoria": "Saúde", "Ativo": "True"},
+            {"Habito": "Leitura Técnica", "Categoria": "Intelecto", "Ativo": "True"}
         ]
         df_h_conf = pd.DataFrame(defaults)
-        df_h_conf.to_csv(PATH_HABITOS_CONFIG, index=False)
+        conexoes.save_gsheet("Habitos_Config", df_h_conf)
     else:
-        df_h_conf = pd.read_csv(PATH_HABITOS_CONFIG)
+        df_h_conf["Ativo"] = df_h_conf["Ativo"].astype(str).str.upper() == "TRUE"
 
-    # Log de Hábitos (O Check diário)
-    if not os.path.exists(PATH_HABITOS_CHECK):
-        df_h_check = pd.DataFrame(columns=["Data", "Habito", "Status"])
-    else:
-        df_h_check = pd.read_csv(PATH_HABITOS_CHECK)
+    # 4. Log de Hábitos (Checks)
+    df_h_check = conexoes.load_gsheet("Habitos_Log", ["Data", "Habito", "Status"])
+    if not df_h_check.empty:
+        df_h_check = df_h_check.dropna(subset=['Habito']) # Limpeza técnica
+        df_h_check["Status"] = df_h_check["Status"].astype(str).str.upper() == "TRUE"
 
     return df_t, df_log, df_h_conf, df_h_check
 
-def save_csv(df, path):
-    df.to_csv(path, index=False)
+def save_data(df, aba):
+    df_save = df.copy()
+    # Converte tipos para GSheets (Data e Booleanos para string)
+    for col in ["Data", "Status", "Concluido", "Ativo"]:
+        if col in df_save.columns:
+            df_save[col] = df_save[col].astype(str)
+    conexoes.save_gsheet(aba, df_save)
 
-# --- FUNÇÕES AUXILIARES DE INTEGRAÇÃO ---
+# --- INTEGRAÇÃO ENTRE ABAS NA NUVEM ---
 def atualizar_leitura_externa(livro_nome, paginas_lidas_hoje):
-    if not os.path.exists(PATH_LEITURAS): return
-    df = pd.read_csv(PATH_LEITURAS)
+    cols = ["Titulo", "Autor", "Total_Paginas", "Paginas_Lidas", "Nota", "Status"]
+    df = conexoes.load_gsheet("Leituras", cols)
+    if df.empty: return
+    
     mask = df['Titulo'] == livro_nome
     if mask.any():
         idx = df[mask].index[0]
-        pag_atual = df.at[idx, 'Paginas_Lidas']
-        total = df.at[idx, 'Total_Paginas']
+        pag_atual = pd.to_numeric(df.at[idx, 'Paginas_Lidas'], errors='coerce')
+        total = pd.to_numeric(df.at[idx, 'Total_Paginas'], errors='coerce')
         nova_pag = min(pag_atual + paginas_lidas_hoje, total)
         df.at[idx, 'Paginas_Lidas'] = nova_pag
         if nova_pag >= total: df.at[idx, 'Status'] = "Concluído"
-        df.to_csv(PATH_LEITURAS, index=False)
+        conexoes.save_gsheet("Leituras", df)
 
 def atualizar_curso_externo(curso_nome, aulas_hoje):
-    if not os.path.exists(PATH_CURSOS): return
-    df = pd.read_csv(PATH_CURSOS)
+    cols = ["Curso", "Plataforma", "Total_Aulas", "Aulas_Feitas", "Link_Certificado", "Status"]
+    df = conexoes.load_gsheet("Cursos", cols)
+    if df.empty: return
+    
     mask = df['Curso'] == curso_nome
     if mask.any():
         idx = df[mask].index[0]
-        atual = df.at[idx, 'Aulas_Feitas']
-        total = df.at[idx, 'Total_Aulas']
+        atual = pd.to_numeric(df.at[idx, 'Aulas_Feitas'], errors='coerce')
+        total = pd.to_numeric(df.at[idx, 'Total_Aulas'], errors='coerce')
         novo = min(atual + aulas_hoje, total)
         df.at[idx, 'Aulas_Feitas'] = novo
         if novo >= total: df.at[idx, 'Status'] = "Concluído"
-        df.to_csv(PATH_CURSOS, index=False)
+        conexoes.save_gsheet("Cursos", df)
 
 # --- ENGINE DE STREAKS (Sequência) ---
 def calcular_streak(df_checks, habito_nome):
@@ -148,7 +147,7 @@ def render_page():
                 if novo_h:
                     novo_reg = {"Habito": novo_h, "Categoria": cat_h, "Ativo": True}
                     df_h_conf = pd.concat([df_h_conf, pd.DataFrame([novo_reg])], ignore_index=True)
-                    save_csv(df_h_conf, PATH_HABITOS_CONFIG)
+                    save_data(df_h_conf, "Habitos_Config")
                     st.rerun()
             
             # Listar para remover
@@ -160,7 +159,7 @@ def render_page():
                     cols[0].write(f"**{row['Habito']}** ({row['Categoria']})")
                     if cols[1].button("🗑️", key=f"del_h_{idx}"):
                         df_h_conf.at[idx, 'Ativo'] = False # Soft delete
-                        save_csv(df_h_conf, PATH_HABITOS_CONFIG)
+                        save_data(df_h_conf, "Habitos_Config")
                         st.rerun()
 
         # --- O DASHBOARD DE HOJE ---
@@ -201,7 +200,7 @@ def render_page():
                         # Salva
                         new_check = {"Data": hoje, "Habito": habito, "Status": True}
                         df_h_check = pd.concat([df_h_check, pd.DataFrame([new_check])], ignore_index=True)
-                        save_csv(df_h_check, PATH_HABITOS_CHECK)
+                        save_data(df_h_check, "Habitos_Log")
                         st.balloons()
                         st.rerun()
                     elif not fazer and feito_hoje:
@@ -211,7 +210,7 @@ def render_page():
                             (df_h_check['Data'] == hoje)
                         ].index
                         df_h_check = df_h_check.drop(idx_del)
-                        save_csv(df_h_check, PATH_HABITOS_CHECK)
+                        save_data(df_h_check, "Habitos_Log")
                         st.rerun()
 
                     # Coluna 2: Informações e Status
@@ -250,7 +249,7 @@ def render_page():
         
         if tipo_sessao == "📖 Leitura":
             try:
-                df_l = pd.read_csv(PATH_LEITURAS)
+                df_l = conexoes.load_gsheet("Leituras", ["Titulo", "Autor", "Total_Paginas", "Paginas_Lidas", "Nota", "Status"])
                 livros = df_l[df_l['Status'] == 'Lendo']['Titulo'].tolist()
             except: livros = []
             
@@ -266,18 +265,17 @@ def render_page():
                     df_log = pd.concat([df_log, pd.DataFrame([log])], ignore_index=True)
                     # Loga tempo também
                     df_log = pd.concat([df_log, pd.DataFrame([{"Data": date.today(), "Tipo": "Tempo Foco", "Subtipo": "Leitura", "Valor": tempo, "Unidade": "Minutos", "Detalhe": sel_livro}])], ignore_index=True)
-                    save_csv(df_log, PATH_LOG)
+                    save_data(df_log, "Habitos_Log")
                     st.success("Progresso registrado!")
 
         elif tipo_sessao == "🎓 Estudo/Curso":
-            try:
-                df_c = pd.read_csv(PATH_CURSOS)
-                cursos = df_c[df_c['Status'] == 'Em Andamento']['Curso'].tolist()
-            except: cursos = []
-            try:
-                df_f = pd.read_csv(PATH_FACULDADE)
-                materias = df_f[df_f['Semestre'] == df_f['Semestre'].max()]['Nome'].tolist() if not df_f.empty else []
-            except: materias = []
+            # Busca cursos ativos direto da nuvem
+            df_c = conexoes.load_gsheet("Cursos", ["Curso", "Status"])
+            cursos = df_c[df_c['Status'] == 'Em Andamento']['Curso'].tolist() if not df_c.empty else []
+            
+            # Busca matérias da faculdade direto da nuvem
+            df_f = conexoes.load_gsheet("Fac_Materias", ["Materia", "Status"])
+            materias = df_f[df_f['Status'] == 'Cursando']['Materia'].tolist() if not df_f.empty else []
             
             alvo = st.selectbox("O que estudou?", ["Curso Extra"] + cursos + ["Faculdade"] + materias)
             
@@ -294,9 +292,9 @@ def render_page():
                 if alvo in cursos and aulas > 0:
                     atualizar_curso_externo(alvo, aulas)
                 
-                log = {"Data": date.today(), "Tipo": "Estudo", "Subtipo": alvo, "Valor": tempo, "Unidade": "Minutos", "Detalhe": detalhe}
+                log = {"Data": str(date.today()), "Tipo": "Estudo", "Subtipo": alvo, "Valor": tempo, "Unidade": "Minutos", "Detalhe": detalhe}
                 df_log = pd.concat([df_log, pd.DataFrame([log])], ignore_index=True)
-                save_csv(df_log, PATH_LOG)
+                save_data(df_log, "Log_Produtividade") # <--- Salva na nuvem
                 st.success("Foco registrado!")
 
         elif tipo_sessao == "💼 Projeto/Geral":
@@ -304,9 +302,9 @@ def render_page():
             tempo = st.number_input("Tempo (min)", 10, step=10)
             desc = st.text_area("Detalhes")
             if st.button("Registrar Trabalho"):
-                log = {"Data": date.today(), "Tipo": "Trabalho", "Subtipo": proj, "Valor": tempo, "Unidade": "Minutos", "Detalhe": desc}
+                log = {"Data": str(date.today()), "Tipo": "Trabalho", "Subtipo": proj, "Valor": tempo, "Unidade": "Minutos", "Detalhe": desc}
                 df_log = pd.concat([df_log, pd.DataFrame([log])], ignore_index=True)
-                save_csv(df_log, PATH_LOG)
+                save_data(df_log, "Log_Produtividade") # <--- Salva na nuvem
                 st.success("Deep Work registrado!")
 
     # ==============================================================================
@@ -317,9 +315,9 @@ def render_page():
         t_nome = c1.text_input("Nova Tarefa")
         t_prio = c2.selectbox("Prioridade", ["Alta", "Média", "Baixa"])
         if st.button("Adicionar Tarefa"):
-            t = {"Tarefa": t_nome, "Data": date.today(), "Concluido": False, "Prioridade": t_prio}
+            t = {"Tarefa": t_nome, "Data": str(date.today()), "Concluido": "False", "Prioridade": t_prio}
             df_t = pd.concat([df_t, pd.DataFrame([t])], ignore_index=True)
-            save_csv(df_t, PATH_TAREFAS)
+            save_data(df_t, "Tarefas")
             st.rerun()
 
         if not df_t.empty:
@@ -329,12 +327,12 @@ def render_page():
                     c_chk, c_txt, c_del = st.columns([0.5, 4, 0.5])
                     if c_chk.checkbox("", key=f"t_{idx}"):
                         df_t.at[idx, 'Concluido'] = True
-                        save_csv(df_t, PATH_TAREFAS)
+                        save_data(df_t, "Tarefas")
                         st.rerun()
                     c_txt.write(f"**{row['Tarefa']}** ({row['Prioridade']})")
                     if c_del.button("x", key=f"dt_{idx}"):
                         df_t = df_t.drop(idx)
-                        save_csv(df_t, PATH_TAREFAS)
+                        save_data(df_t, "Tarefas")
                         st.rerun()
             else:
                 st.info("Zero pendências! 🏖️")
