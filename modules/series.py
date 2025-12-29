@@ -1,8 +1,27 @@
 import streamlit as st
 import pandas as pd
-from modules import conexoes
+from datetime import date
+from modules import conexoes # Garanta que o nome seja conexoes.py conforme seu projeto
 
-def render_series_page():
+def load_data():
+    """Carrega os dados das séries da aba 'Series' do Google Sheets"""
+    cols = ["ID", "Titulo", "Temporada", "Total_Episodios", "Eps_Assistidos", "Status", "Onde_Assistir"]
+    df = conexoes.load_gsheet("Series", cols)
+    
+    if not df.empty:
+        # Saneamento de tipos para garantir cálculos de progresso
+        df["Temporada"] = pd.to_numeric(df["Temporada"], errors='coerce').fillna(1).astype(int)
+        df["Total_Episodios"] = pd.to_numeric(df["Total_Episodios"], errors='coerce').fillna(1).astype(int)
+        df["Eps_Assistidos"] = pd.to_numeric(df["Eps_Assistidos"], errors='coerce').fillna(0).astype(int)
+    return df
+
+def save_data(df):
+    """Sincroniza o DataFrame de séries com o Google Sheets"""
+    # Converte tipos numéricos para string para evitar erros de serialização no GSheets
+    df_save = df.copy()
+    conexoes.save_gsheet("Series", df_save)
+
+def render_page():
     st.header("📺 TV Time: Tracker de Precisão")
     
     # Carregamento com Cache para evitar Erro 429
