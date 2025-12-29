@@ -6,71 +6,36 @@ import plotly.graph_objects as go
 from datetime import datetime, date, timedelta
 import os
 
-# --- CAMINHOS DOS DADOS ---
-PATH_FIN_TRANS = os.path.join('data', 'fin_transacoes.csv')
-PATH_FIN_INVEST = os.path.join('data', 'fin_investimentos.csv')
-PATH_DAYTRADE = os.path.join('data', 'daytrade.csv')
-PATH_PROD = os.path.join('data', 'log_produtividade.csv')
-PATH_LEITURAS = os.path.join('data', 'leituras.csv')
-PATH_VIAGENS = os.path.join('data', 'viagens.csv')
-PATH_BIO = os.path.join('data', 'bio_data.csv')
-PATH_ALMA = os.path.join('data', 'alma_log.csv')
-PATH_FAC_CONFIG = os.path.join('data', 'fac_config.csv')
-PATH_FAC_AVAL = os.path.join('data', 'fac_avaliacoes.csv')
-PATH_CRM_DEALS = os.path.join('data', 'crm_deals.csv')
-PATH_METAS = os.path.join('data', 'metas_okr.csv')
-PATH_HOBBIES = os.path.join('data', 'hobbies_projetos.csv')
-# Novos Caminhos Cognitivos
-PATH_EISEN = os.path.join('data', 'eisenhower_tasks.csv')
-PATH_DECISOES = os.path.join('data', 'decisoes_matrix.csv')
-PATH_FEAR = os.path.join('data', 'fear_setting.csv')
-PATH_MUSICA = os.path.join('data', 'musica_log.csv')
-PATH_FILMES = os.path.join('data', 'filmes_watchlist')
-
-# --- FUNÇÃO HELPER ---
-def safe_load(path, cols):
-    if os.path.exists(path):
-        return pd.read_csv(path)
-    return pd.DataFrame(columns=cols)
+from modules import conexoes
 
 def load_all_data():
-    # 1. Financeiro
-    df_trans = safe_load(PATH_FIN_TRANS, ["Data", "Tipo", "Valor_Total", "Categoria"])
-    df_invest = safe_load(PATH_FIN_INVEST, ["Total_Pago", "Qtd", "Preco_Unitario"])
-    if "Preco_Unitario" not in df_invest.columns and "Preco_Medio" in df_invest.columns:
-        df_invest.rename(columns={"Preco_Medio": "Preco_Unitario"}, inplace=True)
-    if "Preco_Unitario" not in df_invest.columns: df_invest["Preco_Unitario"] = 0.0
-        
-    df_trade = safe_load(PATH_DAYTRADE, ["Data", "Lucro", "Banca_Final"])
+    # 1. Financeiro & Trade
+    df_trans = conexoes.load_gsheet("Transacoes", ["Data", "Tipo", "Valor_Total", "Categoria"])
+    df_invest = conexoes.load_gsheet("Investimentos", ["Total_Pago", "Qtd", "Preco_Unitario"])
+    df_trade = conexoes.load_gsheet("DayTrade", ["Data", "Lucro", "Banca_Final"])
     
-    # 2. Produtividade & Leituras
-    df_prod = safe_load(PATH_PROD, ["Data", "Tipo", "Valor", "Unidade"])
-    df_read = safe_load(PATH_LEITURAS, ["Status", "Paginas_Lidas"])
-    df_trip = safe_load(PATH_VIAGENS, ["Valor_Final_BRL", "Pago"])
+    # 2. Produtividade & Cultura
+    df_prod = conexoes.load_gsheet("Log_Produtividade", ["Data", "Tipo", "Valor", "Unidade"])
+    df_read = conexoes.load_gsheet("Leituras", ["Status", "Paginas_Lidas"])
+    df_musica = conexoes.load_gsheet("Musica", ["ID"])
+    df_filmes = conexoes.load_gsheet("Filmes", ["Status"])
     
-    # 3. Bio-Data
-    cols_bio = ["Data", "Peso_kg", "Gordura_Perc", "Sono_hrs", "Treino_Tipo", "Calorias_Ingeridas", "Objetivo_Tipo"]
-    df_bio = safe_load(PATH_BIO, cols_bio)
-    for col in cols_bio:
-        if col not in df_bio.columns:
-            if col == "Objetivo_Tipo": df_bio[col] = "Manter"
-            elif col == "Treino_Tipo": df_bio[col] = "Descanso"
-            else: df_bio[col] = 0.0
-
-    # 4. Outros
-    df_alma = safe_load(PATH_ALMA, ["Data", "Nivel_Paz_0_10", "Emocao_Dominante"])
-    df_fac_conf = safe_load(PATH_FAC_CONFIG, ["Inicio", "Fim"])
-    df_fac_aval = safe_load(PATH_FAC_AVAL, ["Materia", "Nome", "Data", "Concluido"])
-    df_deals = safe_load(PATH_CRM_DEALS, ["Cliente", "Projeto", "Valor_Est", "Estagio", "Previsao_Fechamento"])
-    df_metas = safe_load(PATH_METAS, ["ID", "Titulo", "Tipo_Vinculo", "Meta_Valor", "Unidade", "Deadline", "Progresso_Manual"])
-    df_hobbies = safe_load(PATH_HOBBIES, ["Nome", "Categoria", "Status", "Progresso_Perc"])
+    # 3. Saúde & Alma
+    df_bio = conexoes.load_gsheet("Bio", ["Data", "Peso_kg", "Gordura_Perc", "Sono_hrs", "Calorias_Ingeridas"])
+    df_alma = conexoes.load_gsheet("Alma", ["Data", "Nivel_Paz_0_10", "Emocao_Dominante"])
     
-    # 5. Cognitivo (Novo)
-    df_eisen = safe_load(PATH_EISEN, ["Tarefa", "Importante", "Urgente", "Status"])
-    df_decis = safe_load(PATH_DECISOES, ["Titulo", "Opcao"])
-    df_fear = safe_load(PATH_FEAR, ["Medo_Acao", "Status"])
+    # 4. Projetos & Acadêmico
+    df_fac_conf = conexoes.load_gsheet("Fac_Config", ["Inicio", "Fim"])
+    df_deals = conexoes.load_gsheet("CRM_Deals", ["Cliente", "Projeto", "Valor_Est", "Estagio"])
+    df_metas = conexoes.load_gsheet("Metas", ["ID", "Titulo", "Tipo_Vinculo", "Meta_Valor", "Unidade", "Deadline", "Progresso_Manual"])
+    df_hobbies = conexoes.load_gsheet("Hobbies", ["Nome", "Status", "Progresso_Perc"])
     
-    return df_trans, df_invest, df_trade, df_prod, df_read, df_trip, df_bio, df_alma, df_fac_conf, df_fac_aval, df_deals, df_metas, df_hobbies, df_eisen, df_decis, df_fear
+    # 5. Cognitivo
+    df_eisen = conexoes.load_gsheet("Tarefas", ["Tarefa", "Prioridade", "Concluido"]) # Vinculado ao To-Do
+    df_fear = conexoes.load_gsheet("FearSetting", ["Medo_Acao", "Status"])
+    
+    return (df_trans, df_invest, df_trade, df_prod, df_read, df_bio, df_alma, 
+            df_fac_conf, df_deals, df_metas, df_hobbies, df_eisen, df_fear, df_musica, df_filmes)
 
 # --- CÁLCULO DE METAS ---
 def calcular_progresso_meta(row, dados_externos):
@@ -101,7 +66,7 @@ def render_page():
     st.caption(f"Resumo Executivo - {date.today().strftime('%d/%m/%Y')}")
     
     try:
-        df_trans, df_invest, df_trade, df_prod, df_read, df_trip, df_bio, df_alma, df_fac_conf, df_fac_aval, df_deals, df_metas, df_hobbies, df_eisen, df_decis, df_fear = load_all_data()
+        df_trans, df_invest, df_trade, df_prod, df_read, df_trip, df_bio, df_alma, df_fac_conf, df_fac_aval, df_deals, df_metas, df_hobbies, df_eisen, df_decis, df_fear, df_musica, df_filmes = load_all_data()
     except Exception as e:
         st.error(f"Erro ao carregar dados: {e}")
         return
@@ -307,7 +272,7 @@ def render_page():
             df_chart = pd.DataFrame({'Receitas': receitas, 'Despesas': despesas}).fillna(0)
             st.bar_chart(df_chart)
 
-    # 6. RODAPÉ (Foco Específico) - Agora com 5 colunas
+    # 6. RODAPÉ (Foco Específico)
     st.subheader("🔍 Foco Específico & Cultura")
     kp1, kp2, kp3, kp4, kp5, kp6 = st.columns(6)
     
@@ -316,17 +281,18 @@ def render_page():
         st.progress(min(lidos/12, 1.0))
         
     with kp2:
-        # Música (Novo)
-        albuns_ouvidos = 0
-        if os.path.exists(PATH_MUSICA):
-            df_mus = pd.read_csv(PATH_MUSICA)
-            albuns_ouvidos = len(df_mus)
+        # Música (Já carregado de df_musica)
+        albuns_ouvidos = len(df_musica) if not df_musica.empty else 0
         st.markdown(f"**🎧 Música**: {albuns_ouvidos} Álbuns")
-        # Meta simbólica de 50 álbuns no ano
-        st.progress(min(albuns_ouvidos/50, 1.0))
+        st.progress(min(albuns_ouvidos/50, 1.0)) # Meta 50
 
     with kp3:
-        if not df_trip.empty and 'Pago' in df_trip.columns:
+        # Viagens (Calcula dívida de viagem se houver)
+        if not df_trip.empty:
+            # Saneamento rápido para garantir cálculo
+            df_trip['Valor_Final_BRL'] = pd.to_numeric(df_trip['Valor_Final_BRL'], errors='coerce').fillna(0)
+            df_trip['Pago'] = df_trip['Pago'].astype(str).str.upper() == "TRUE"
+            
             falta = df_trip[df_trip['Pago'] == False]['Valor_Final_BRL'].sum()
             st.markdown(f"**✈️ Viagens**: -R$ {falta:,.0f}")
         else:
@@ -337,31 +303,27 @@ def render_page():
         st.progress(paz_atual / 10)
         
     with kp5:
+        # Faculdade (Status do Semestre)
         if not df_fac_conf.empty:
             ini_sem = pd.to_datetime(df_fac_conf.iloc[0]['Inicio']).date()
             fim_sem = pd.to_datetime(df_fac_conf.iloc[0]['Fim']).date()
+            hoje = date.today()
             if ini_sem <= hoje <= fim_sem:
-                 total = (fim_sem - ini_sem).days
-                 passados = (hoje - ini_sem).days
-                 perc_sem = passados/total if total > 0 else 0
-                 st.markdown(f"**🎓 Semestre**: {perc_sem*100:.0f}%")
-                 st.progress(perc_sem)
+                total = (fim_sem - ini_sem).days
+                passados = (hoje - ini_sem).days
+                perc_sem = passados/total if total > 0 else 0
+                st.markdown(f"**🎓 Semestre**: {perc_sem*100:.0f}%")
+                st.progress(perc_sem)
             else:
                 st.markdown("**🎓 Faculdade**: Férias")
         else:
             st.markdown("**🎓 Faculdade**: -")
 
-             # Pequeno hack se não tiver importado df_filmes na função principal ainda:
-
     with kp6:
-        # Filmes (NOVO)
+        # Filmes (Já carregado de df_filmes)
         filmes_vistos = 0
-        if not df_hobbies.empty: # Ops, carregando de filmes
-             # Pequeno hack se não tiver importado df_filmes na função principal ainda:
-             if os.path.exists(PATH_FILMES):
-                 df_f = pd.read_csv(PATH_FILMES)
-                 filmes_vistos = len(df_f[df_f['Status'] == 'Assistido'])
+        if not df_filmes.empty:
+            filmes_vistos = len(df_filmes[df_filmes['Status'] == 'Assistido'])
         
         st.markdown(f"**🎬 Filmes**: {filmes_vistos}")
-        # Meta de ver 1 filme por semana (52 no ano)
-        st.progress(min(filmes_vistos/52, 1.0))
+        st.progress(min(filmes_vistos/52, 1.0)) # Meta 1 por semana
