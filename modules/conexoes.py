@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import time
 
 # Cache para não reconectar toda hora
 @st.cache_resource
@@ -17,6 +18,8 @@ def conectar_gsheets():
     return client
 
 def load_gsheet(nome_aba, colunas_padrao):
+
+    time.delay(2)
     """
     Carrega uma aba específica da planilha. Se não existir, cria.
     Retorna um DataFrame Pandas.
