@@ -4,17 +4,23 @@ import plotly.express as px
 from datetime import date
 import os
 
-# --- ARQUIVOS ---
-PATH_DECISOES = os.path.join('data', 'decisoes_matrix.csv')
+from modules import conexoes
 
 def load_data():
-    # Estrutura Normalizada: Cada linha é um voto num critério
-    if not os.path.exists(PATH_DECISOES):
-        return pd.DataFrame(columns=["Decisao_ID", "Titulo", "Opcao", "Criterio", "Peso", "Nota"])
-    return pd.read_csv(PATH_DECISOES)
+    # Estrutura: Cada linha é um voto num critério
+    cols = ["Decisao_ID", "Titulo", "Opcao", "Criterio", "Peso", "Nota"]
+    df = conexoes.load_gsheet("Decisoes", cols)
+    
+    if not df.empty:
+        # Saneamento de tipos para cálculos matemáticos
+        df["Decisao_ID"] = pd.to_numeric(df["Decisao_ID"], errors='coerce').fillna(0).astype(int)
+        df["Peso"] = pd.to_numeric(df["Peso"], errors='coerce').fillna(1).astype(int)
+        df["Nota"] = pd.to_numeric(df["Nota"], errors='coerce').fillna(0).astype(int)
+    return df
 
 def save_data(df):
-    df.to_csv(PATH_DECISOES, index=False)
+    # Salva na aba "Decisoes" da planilha compartilhada
+    conexoes.save_gsheet("Decisoes", df)
 
 def render_page():
     st.header("🧠 Decision Lab (Matriz Ponderada)")
@@ -24,52 +30,43 @@ def render_page():
     
     # --- NOVA DECISÃO (WIZARD) ---
     with st.expander("➕ Nova Decisão (Configurar Matriz)"):
-        with st.form("form_setup"):
-            d_titulo = st.text_input("Qual é a dúvida? (Ex: Qual carro comprar?)")
-            
-            c1, c2 = st.columns(2)
-            # Opções (separadas por vírgula)
-            d_opcoes = c1.text_area("Opções (Separadas por vírgula)", "Civic Si, Golf GTI, Jetta GLI")
-            
-            # Critérios e Pesos (Mini sintaxe: Criterio=Peso)
-            d_criterios = c2.text_area("Critérios=Peso (1 a 5)", "Preço=5\nEmoção=4\nRevenda=3\nManutenção=3")
-            
-            if st.form_submit_button("Criar Matriz"):
-                if d_titulo and d_opcoes and d_criterios:
-                    # Gera ID
-                    new_id = 1 if df.empty else df['Decisao_ID'].max() + 1
-                    
-                    # Processa Opções e Critérios
-                    lista_opcoes = [x.strip() for x in d_opcoes.split(',') if x.strip()]
-                    lista_criterios = []
-                    
-                    for linha in d_criterios.split('\n'):
-                        if '=' in linha:
-                            crit, peso = linha.split('=')
-                            lista_criterios.append((crit.strip(), int(peso.strip())))
-                    
-                    # Cria as linhas no DF (Produto Cartesiano: Opcao x Criterio)
-                    novas_linhas = []
-                    for op in lista_opcoes:
-                        for crit, peso in lista_criterios:
-                            novas_linhas.append({
-                                "Decisao_ID": new_id,
-                                "Titulo": d_titulo,
-                                "Opcao": op,
-                                "Criterio": crit,
-                                "Peso": peso,
-                                "Nota": 0 # Nota inicial
-                            })
-                    
-                    df = pd.concat([df, pd.DataFrame(novas_linhas)], ignore_index=True)
-                    save_data(df)
-                    st.success("Matriz Criada! Agora avalie as opções abaixo.")
-                    st.rerun()
+            with st.form("form_setup"):
+                d_titulo = st.text_input("Qual é a dúvida?")
+                
+                c1, c2 = st.columns(2)
+                d_opcoes = c1.text_area("Opções (Separadas por vírgula)", "Opção A, Opção B")
+                d_criterios = c2.text_area("Critérios=Peso (1 a 5)", "Critério1=5\nCritério2=3")
+                
+                if st.form_submit_button("Criar Matriz"):
+                    if d_titulo and d_opcoes and d_criterios:
+                        # Gera ID incremental na nuvem
+                        new_id = 1 if df.empty else int(df['Decisao_ID'].max()) + 1
+                        
+                        lista_opcoes = [x.strip() for x in d_opcoes.split(',') if x.strip()]
+                        novas_linhas = []
+                        
+                        for linha in d_criterios.split('\n'):
+                            if '=' in linha:
+                                crit, peso = linha.split('=')
+                                for op in lista_opcoes:
+                                    novas_linhas.append({
+                                        "Decisao_ID": new_id,
+                                        "Titulo": d_titulo,
+                                        "Opcao": op,
+                                        "Criterio": crit.strip(),
+                                        "Peso": int(peso.strip()),
+                                        "Nota": 0
+                                    })
+                        
+                        df_updated = pd.concat([df, pd.DataFrame(novas_linhas)], ignore_index=True)
+                        save_data(df_updated)
+                        st.success("Matriz sincronizada! Avalie abaixo.")
+                        st.rerun()
 
-    # --- SELETOR DE DECISÃO ---
-    if df.empty:
-        st.info("Nenhuma decisão cadastrada.")
-        return
+        # --- SELETOR E RESTANTE DA LÓGICA ---
+        if df.empty:
+            st.info("Nenhuma decisão cadastrada no Google Sheets.")
+            return
 
     decisoes_unicas = df[['Decisao_ID', 'Titulo']].drop_duplicates().sort_values('Decisao_ID', ascending=False)
     

@@ -4,53 +4,47 @@ import numpy as np
 from datetime import datetime, date, timedelta
 import os
 
-# --- ARQUIVOS ---
-PATH_MATERIAS = os.path.join('data', 'fac_materias.csv')
-PATH_AVALIACOES = os.path.join('data', 'fac_avaliacoes.csv')
-PATH_TOPICOS = os.path.join('data', 'fac_topicos.csv')
-PATH_CONFIG = os.path.join('data', 'fac_config.csv')
-PATH_HORARIOS = os.path.join('data', 'fac_horarios.csv')
+from modules import conexoes
 
 def load_data():
-    # 1. Config
-    if not os.path.exists(PATH_CONFIG):
-        df_conf = pd.DataFrame([{"Inicio": date.today(), "Fim": date.today() + timedelta(days=120)}])
-    else:
-        df_conf = pd.read_csv(PATH_CONFIG)
+    # Definição das colunas para cada aba
+    cols_conf = ["Inicio", "Fim"]
+    cols_hor = ["Dia_Semana", "Hora_Inicio", "Materia", "Sala"]
+    cols_mat = ["Materia", "Semestre_Ref", "Status", "Pre_Requisito", "Professor"]
+    cols_aval = ["Materia", "Nome", "Data", "Peso", "Nota", "Concluido"]
+    cols_top = ["Materia", "Topico", "Prova_Ref", "Teoria_Ok", "Exercicio_Ok", "Revisao_Ok"]
 
-    # 2. Horários
-    if not os.path.exists(PATH_HORARIOS):
-        df_h = pd.DataFrame(columns=["Dia_Semana", "Hora_Inicio", "Materia", "Sala"])
-    else:
-        df_h = pd.read_csv(PATH_HORARIOS)
-        
-    # 3. Matérias
-    if not os.path.exists(PATH_MATERIAS):
-        df_m = pd.DataFrame(columns=["Materia", "Semestre_Ref", "Status", "Pre_Requisito", "Professor"])
-    else:
-        df_m = pd.read_csv(PATH_MATERIAS)
-        
-    # 4. Avaliações
-    if not os.path.exists(PATH_AVALIACOES):
-        df_a = pd.DataFrame(columns=["Materia", "Nome", "Data", "Peso", "Nota", "Concluido"])
-    else:
-        df_a = pd.read_csv(PATH_AVALIACOES)
+    # Carregamento via Google Sheets
+    df_conf = conexoes.load_gsheet("Fac_Config", cols_conf)
+    if df_conf.empty:
+        df_conf = pd.DataFrame([{"Inicio": str(date.today()), "Fim": str(date.today() + timedelta(days=120))}])
+    
+    df_h = conexoes.load_gsheet("Fac_Horarios", cols_hor)
+    df_m = conexoes.load_gsheet("Fac_Materias", cols_mat)
+    df_a = conexoes.load_gsheet("Fac_Avaliacoes", cols_aval)
+    df_t = conexoes.load_gsheet("Fac_Topicos", cols_top)
 
-    # 5. Tópicos
-    if not os.path.exists(PATH_TOPICOS):
-        df_t = pd.DataFrame(columns=["Materia", "Topico", "Prova_Ref", "Teoria_Ok", "Exercicio_Ok", "Revisao_Ok"])
-    else:
-        df_t = pd.read_csv(PATH_TOPICOS)
+    # --- SANEAMENTO DE TIPOS (GSheets -> Python Types) ---
+    if not df_a.empty:
+        df_a["Peso"] = pd.to_numeric(df_a["Peso"], errors='coerce').fillna(1.0)
+        df_a["Nota"] = pd.to_numeric(df_a["Nota"], errors='coerce').fillna(0.0)
+        df_a["Concluido"] = df_a["Concluido"].astype(str).str.upper() == "TRUE"
+
+    if not df_t.empty:
+        for col in ["Teoria_Ok", "Exercicio_Ok", "Revisao_Ok"]:
+            df_t[col] = df_t[col].astype(str).str.upper() == "TRUE"
         if "Prova_Ref" not in df_t.columns: df_t["Prova_Ref"] = "Geral"
 
     return df_conf, df_h, df_m, df_a, df_t
 
-def save_csv(df, path):
-    df.to_csv(path, index=False)
+def save_data(df, aba):
+    # Converte tudo para string antes de subir para evitar erros de serialização
+    df_save = df.copy()
+    if "Data" in df_save.columns: df_save["Data"] = df_save["Data"].astype(str)
+    conexoes.save_gsheet(aba, df_save)
 
 def render_page():
     st.header("🎓 Engenharia Acadêmica")
-    
     df_conf, df_hor, df_mat, df_aval, df_top = load_data()
     
     # --- DETECTOR DE FÉRIAS ---
@@ -59,7 +53,7 @@ def render_page():
     fim_sem = pd.to_datetime(df_conf.iloc[0]['Fim']).date()
     em_ferias = not (inicio_sem <= hoje <= fim_sem)
 
-    # --- SIDEBAR ---
+    # --- SIDEBAR & NAVEGAÇÃO ---
     with st.sidebar:
         st.subheader("📅 Calendário")
         c1, c2 = st.columns(2)
@@ -67,16 +61,12 @@ def render_page():
         fim = c2.date_input("Fim", fim_sem)
         
         if ini != inicio_sem or fim != fim_sem:
-            df_conf.at[0, 'Inicio'] = ini
-            df_conf.at[0, 'Fim'] = fim
-            save_csv(df_conf, PATH_CONFIG)
+            df_conf.at[0, 'Inicio'] = str(ini)
+            df_conf.at[0, 'Fim'] = str(fim)
+            save_data(df_conf, "Fac_Config")
             st.rerun()
             
-        if em_ferias: st.success("🏖️ MODO FÉRIAS")
-        else: st.info("🔥 MODO SEMESTRE")
-
         st.divider()
-        st.subheader("📚 Navegação")
         cursando = df_mat[df_mat['Status'] == 'Cursando']['Materia'].tolist()
         view_mode = st.radio("Visão", ["Dashboard & Horários"] + cursando + ["Grade Curricular (CRUD)"])
 

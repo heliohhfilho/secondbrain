@@ -3,16 +3,29 @@ import pandas as pd
 from datetime import date
 import os
 
+from modules import conexoes
+
 # --- ARQUIVOS ---
 PATH_EISEN = os.path.join('data', 'eisenhower_tasks.csv')
 
 def load_data():
-    if not os.path.exists(PATH_EISEN):
-        return pd.DataFrame(columns=["ID", "Tarefa", "Importante", "Urgente", "Status", "Data_Add"])
-    return pd.read_csv(PATH_EISEN)
+    cols = ["ID", "Tarefa", "Importante", "Urgente", "Status", "Data_Add"]
+    df = conexoes.load_gsheet("Eisenhower", cols)
+    
+    if not df.empty:
+        # Saneamento técnico para garantir filtros booleanos corretos
+        df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
+        # GSheets pode trazer booleanos como strings "TRUE"/"FALSE"
+        df["Importante"] = df["Importante"].astype(str).str.upper() == "TRUE"
+        df["Urgente"] = df["Urgente"].astype(str).str.upper() == "TRUE"
+        
+    return df
 
 def save_data(df):
-    df.to_csv(PATH_EISEN, index=False)
+    # Converte tipos para garantir compatibilidade com o Google Sheets
+    df_save = df.copy()
+    df_save["Data_Add"] = df_save["Data_Add"].astype(str)
+    conexoes.save_gsheet("Eisenhower", df_save)
 
 def render_page():
     st.header("🧠 Matriz de Eisenhower")
@@ -25,22 +38,21 @@ def render_page():
         st.subheader("➕ Nova Tarefa")
         with st.form("form_eisen"):
             e_task = st.text_input("Descrição da Tarefa")
-            
             c1, c2 = st.columns(2)
-            e_imp = c1.checkbox("É Importante?", value=True, help="Tem impacto no seu longo prazo/metas?")
-            e_urg = c2.checkbox("É Urgente?", value=False, help="Tem prazo estourando agora?")
+            e_imp = c1.checkbox("É Importante?", value=True)
+            e_urg = c2.checkbox("É Urgente?", value=False)
             
             if st.form_submit_button("Classificar"):
                 if e_task:
-                    new_id = 1 if df.empty else df['ID'].max() + 1
+                    new_id = 1 if df.empty else int(df['ID'].max()) + 1
                     novo = {
                         "ID": new_id, "Tarefa": e_task, 
                         "Importante": e_imp, "Urgente": e_urg, 
-                        "Status": "Pendente", "Data_Add": date.today()
+                        "Status": "Pendente", "Data_Add": str(date.today())
                     }
                     df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
                     save_data(df)
-                    st.success("Tarefa alocada!")
+                    st.success("Tarefa sincronizada na nuvem!")
                     st.rerun()
 
     # --- PROCESSAMENTO DOS QUADRANTES ---

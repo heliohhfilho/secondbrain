@@ -3,19 +3,26 @@ import pandas as pd
 from datetime import date
 import os
 
-# --- ARQUIVOS ---
-PATH_FEAR = os.path.join('data', 'fear_setting.csv')
+from modules import conexoes
 
 def load_data():
-    if not os.path.exists(PATH_FEAR):
-        return pd.DataFrame(columns=[
-            "ID", "Medo_Acao", "Pior_Cenario", "Prevencao", "Reparacao", 
-            "Beneficios_Sucesso", "Custo_Inacao", "Data_Add", "Status"
-        ])
-    return pd.read_csv(PATH_FEAR)
+    cols = [
+        "ID", "Medo_Acao", "Pior_Cenario", "Prevencao", "Reparacao", 
+        "Beneficios_Sucesso", "Custo_Inacao", "Data_Add", "Status"
+    ]
+    df = conexoes.load_gsheet("FearSetting", cols)
+    
+    if not df.empty:
+        # Saneamento de tipos para garantir IDs numéricos
+        df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
+    return df
 
 def save_data(df):
-    df.to_csv(PATH_FEAR, index=False)
+    # Converte tipos para garantir compatibilidade com o Google Sheets (Datas como string)
+    df_save = df.copy()
+    if "Data_Add" in df_save.columns:
+        df_save["Data_Add"] = df_save["Data_Add"].astype(str)
+    conexoes.save_gsheet("FearSetting", df_save)
 
 def render_page():
     st.header("🛡️ Fear Setting (Gestão de Risco Pessoal)")
@@ -27,30 +34,30 @@ def render_page():
     with st.expander("➕ Novo Lab de Risco (Debugar um Medo)", expanded=df.empty):
         with st.form("form_fear"):
             st.markdown("### 1. O que você tem medo de fazer?")
-            acao = st.text_input("Ex: Pedir demissão para virar Freelancer, Chamar alguém para sair, Investir tudo em Bitcoin...")
+            acao = st.text_input("Ex: Investir em um novo setup de Trade, Mudar de área na Engenharia...")
             
             c1, c2, c3 = st.columns(3)
-            pior = c1.text_area("😱 Pior Cenário (Definir)", placeholder="Ficar sem dinheiro, ser rejeitado, perder tudo...", height=100)
-            prev = c2.text_area("🛡️ Prevenção (O que fazer antes?)", placeholder="Juntar reserva de emergência, estudar antes...", height=100)
-            repar = c3.text_area("🔧 Reparação (Se der errado?)", placeholder="Voltar a morar com os pais, procurar emprego novo...", height=100)
+            pior = c1.text_area("😱 Pior Cenário", height=100)
+            prev = c2.text_area("🛡️ Prevenção", height=100)
+            repar = c3.text_area("🔧 Reparação", height=100)
             
             st.markdown("---")
             c4, c5 = st.columns(2)
-            benef = c4.text_area("🚀 Benefícios (Se der certo?)", placeholder="Liberdade, lucro alto, felicidade...", height=80)
-            inacao = c5.text_area("💀 Custo da Inação (Se eu não fizer nada?)", placeholder="Ficar estagnado, infeliz, arrependido em 1 ano...", height=80)
+            benef = c4.text_area("🚀 Benefícios", height=80)
+            inacao = c5.text_area("💀 Custo da Inação", height=80)
             
             if st.form_submit_button("Analisar Risco"):
                 if acao:
-                    new_id = 1 if df.empty else df['ID'].max() + 1
+                    new_id = 1 if df.empty else int(df['ID'].max()) + 1
                     novo = {
                         "ID": new_id, "Medo_Acao": acao, 
                         "Pior_Cenario": pior, "Prevencao": prev, "Reparacao": repar,
                         "Beneficios_Sucesso": benef, "Custo_Inacao": inacao,
-                        "Data_Add": date.today(), "Status": "Analisado"
+                        "Data_Add": str(date.today()), "Status": "Analisado"
                     }
                     df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
                     save_data(df)
-                    st.success("Risco Mapeado! A lógica venceu o medo.")
+                    st.success("Risco Mapeado na Nuvem! A lógica venceu o medo.")
                     st.rerun()
 
     # --- VISUALIZAÇÃO DOS MEDOS ---
