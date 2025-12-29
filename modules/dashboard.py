@@ -34,9 +34,15 @@ def load_all_data():
     # 5. Cognitivo
     df_eisen = conexoes.load_gsheet("Tarefas", ["Tarefa", "Prioridade", "Concluido"]) # Vinculado ao To-Do
     df_fear = conexoes.load_gsheet("FearSetting", ["Medo_Acao", "Status"])
+
+    # 6. Módulos que faltavam carregar para bater com o Return (Total 18)
+    df_trip = conexoes.load_gsheet("Viagens_Fin", ["Viagem", "Valor_Final_BRL", "Pago"])
+    df_proj = conexoes.load_gsheet("Projetos", ["ID", "Nome", "Status"])
+    df_task = conexoes.load_gsheet("Tarefas_Projetos", ["Projeto_ID", "Status"])
     
     return (df_trans, df_invest, df_trade, df_prod, df_read, df_bio, df_alma, 
-            df_fac_conf, df_deals, df_metas, df_hobbies, df_eisen, df_fear, df_musica, df_filmes)
+            df_fac_conf, df_deals, df_metas, df_hobbies, df_eisen, df_fear, 
+            df_musica, df_filmes, df_trip, df_proj, df_task)
 
 # --- CÁLCULO DE METAS ---
 def calcular_progresso_meta(row, dados_externos):
@@ -67,7 +73,9 @@ def render_page():
     st.caption(f"Resumo Executivo - {date.today().strftime('%d/%m/%Y')}")
     
     try:
-        df_trans, df_invest, df_trade, df_prod, df_read, df_trip, df_bio, df_alma, df_fac_conf, df_fac_aval, df_deals, df_metas, df_hobbies, df_eisen, df_decis, df_fear, df_musica, df_filmes = load_all_data()
+        (df_trans, df_invest, df_trade, df_prod, df_read, df_bio, df_alma, 
+        df_fac_conf, df_deals, df_metas, df_hobbies, df_eisen, df_fear, 
+        df_musica, df_filmes, df_trip, df_proj, df_task) = load_all_data()
     except Exception as e:
         st.error(f"Erro ao carregar dados: {e}")
         return

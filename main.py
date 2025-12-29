@@ -124,3 +124,7 @@ if choice == "Cartões":
 
 if choice == "Investimentos":
     investimentos.render_page()
+
+if st.sidebar.button("🔄 Sincronizar Nuvem"):
+    st.cache_data.clear()
+    st.rerun()
