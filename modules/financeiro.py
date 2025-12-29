@@ -253,108 +253,104 @@ def render_page():
             else:
                 st.success("Você não tem dívidas parceladas futuras no cartão!")
 
-        # ------------------------------------------------------------------
-        # ABA 5: DÍVIDAS E EMPRÉSTIMOS (O Retorno)
-        # ------------------------------------------------------------------
-        with tab_dividas:
-            c_kpi, c_gerenciador = st.columns([1, 2])
+    # ------------------------------------------------------------------
+    # ABA 5: DÍVIDAS (COM DELETE)
+    # ------------------------------------------------------------------
+    with tab_dividas:
+        c_kpi, c_gerenciador = st.columns([1, 2])
+        
+        # --- LADO ESQUERDO: CADASTRO ---
+        with c_kpi:
+            st.subheader("Novo Contrato")
+            with st.form("form_divida"):
+                l_nome = st.text_input("Nome (Ex: Financiamento Carro)")
+                l_val_parc = st.number_input("Valor da Parcela (R$)", 0.0)
+                l_tot_parc = st.number_input("Total de Parcelas", 1, 480, 12)
+                l_pagas = st.number_input("Parcelas Já Pagas", 0, 480, 0)
+                l_dia = st.number_input("Dia Vencimento", 1, 31, 10)
+                
+                st.caption(f"Total da Dívida: R$ {l_val_parc * l_tot_parc:,.2f}")
+                
+                if st.form_submit_button("Cadastrar Dívida"):
+                    new_id = 1 if df_loans.empty else df_loans['ID'].max() + 1
+                    novo = {
+                        "ID": new_id, "Nome": l_nome, "Valor_Parcela": l_val_parc, 
+                        "Parcelas_Totais": l_tot_parc, "Parcelas_Pagas": l_pagas, 
+                        "Status": "Ativo", "Dia_Vencimento": l_dia
+                    }
+                    df_loans = pd.concat([df_loans, pd.DataFrame([novo])], ignore_index=True)
+                    conexoes.save_gsheet("Emprestimos", df_loans)
+                    st.success("Cadastrado!")
+                    st.rerun()
             
-            # --- LADO ESQUERDO: KPIS E CADASTRO ---
-            with c_kpi:
-                st.subheader("Novo Contrato")
-                with st.form("form_divida"):
-                    l_nome = st.text_input("Nome (Ex: Empréstimo Pessoal)")
-                    l_val_parc = st.number_input("Valor da Parcela (R$)", 0.0)
-                    l_tot_parc = st.number_input("Total de Parcelas", 1, 480, 12)
-                    l_pagas = st.number_input("Parcelas Já Pagas", 0, 480, 0)
-                    l_dia = st.number_input("Dia Vencimento", 1, 31, 10)
-                    
-                    # Cálculo automático do Total
-                    st.caption(f"Total da Dívida: R$ {l_val_parc * l_tot_parc:,.2f}")
-                    
-                    if st.form_submit_button("Cadastrar Dívida"):
-                        new_id = 1 if df_loans.empty else df_loans['ID'].max() + 1
-                        novo = {
-                            "ID": new_id, "Nome": l_nome, "Valor_Parcela": l_val_parc, 
-                            "Parcelas_Totais": l_tot_parc, "Parcelas_Pagas": l_pagas, 
-                            "Status": "Ativo", "Dia_Vencimento": l_dia
-                        }
-                        df_loans = pd.concat([df_loans, pd.DataFrame([novo])], ignore_index=True)
-                        conexoes.save_gsheet("Emprestimos", df_loans)
-                        st.success("Dívida Cadastrada!")
-                        st.rerun()
-                
-                st.divider()
-                
-                # --- ANÁLISE DE RENDA COMPROMETIDA ---
-                st.markdown("#### 🚨 Renda Comprometida")
-                # Calcula soma das parcelas ativas
-                ativos = df_loans[df_loans['Status'] == 'Ativo']
-                total_mensal_divida = ativos['Valor_Parcela'].sum() if not ativos.empty else 0.0
-                
-                # Pega uma renda base (pode vir do organizador ou input manual aqui para simulação)
-                renda_base = 3000.0 # Valor padrão caso não tenha histórico
-                if not df_trans.empty:
-                    # Tenta estimar renda média dos últimos lançamentos de Receita
-                    rec = df_trans[df_trans['Tipo'] == 'Receita']['Valor_Total'].mean()
-                    if rec > 0: renda_base = rec
+            st.divider()
+            
+            # KPI de Renda Comprometida
+            st.markdown("#### 🚨 Renda Comprometida")
+            ativos = df_loans[df_loans['Status'] == 'Ativo']
+            total_mensal_divida = ativos['Valor_Parcela'].sum() if not ativos.empty else 0.0
+            
+            # Estimativa de Renda para o cálculo
+            renda_base = 3000.0 
+            if not df_trans.empty:
+                rec = df_trans[df_trans['Tipo'] == 'Receita']['Valor_Total'].mean()
+                if rec > 0: renda_base = rec
 
-                perc_comprometido = (total_mensal_divida / renda_base) * 100
-                
-                st.metric("Custo Fixo de Dívidas", f"R$ {total_mensal_divida:,.2f}")
-                st.metric("% da Renda", f"{perc_comprometido:.1f}%", help="Ideal é manter abaixo de 30%")
-                st.progress(min(perc_comprometido/100, 1.0))
-                if perc_comprometido > 30:
-                    st.error("Cuidado! Dívidas altas.")
+            perc = (total_mensal_divida / renda_base) * 100
+            
+            st.metric("Custo Fixo Dívidas", f"R$ {total_mensal_divida:,.2f}")
+            st.metric("% da Renda", f"{perc:.1f}%")
+            st.progress(min(perc/100, 1.0))
 
-            # --- LADO DIREITO: CARTEIRA E PAGAMENTO ---
-            with c_gerenciador:
-                st.subheader("Carteira de Dívidas Ativas")
-                if ativos.empty:
-                    st.info("Você não possui dívidas ativas. Parabéns!")
-                else:
-                    for idx, row in ativos.iterrows():
-                        saldo_devedor = row['Valor_Parcela'] * (row['Parcelas_Totais'] - row['Parcelas_Pagas'])
-                        progresso = row['Parcelas_Pagas'] / row['Parcelas_Totais']
+        # --- LADO DIREITO: GERENCIAMENTO ---
+        with c_gerenciador:
+            st.subheader("Carteira de Dívidas Ativas")
+            if ativos.empty:
+                st.info("Nenhuma dívida ativa.")
+            else:
+                for idx, row in ativos.iterrows():
+                    saldo_devedor = row['Valor_Parcela'] * (row['Parcelas_Totais'] - row['Parcelas_Pagas'])
+                    progresso = row['Parcelas_Pagas'] / row['Parcelas_Totais']
+                    
+                    with st.container(border=True):
+                        # Layout do Card
+                        c1, c2, c3 = st.columns([3, 2, 1.5])
                         
-                        with st.container(border=True):
-                            c1, c2, c3 = st.columns([3, 2, 1])
+                        with c1:
+                            st.markdown(f"### {row['Nome']}")
+                            st.caption(f"Vence dia {int(row.get('Dia_Vencimento', 10))}")
+                            st.progress(progresso, text=f"{int(row['Parcelas_Pagas'])}/{int(row['Parcelas_Totais'])}")
+                        
+                        with c2:
+                            st.metric("Parcela", f"R$ {row['Valor_Parcela']:,.2f}")
+                            st.caption(f"Saldo: R$ {saldo_devedor:,.2f}")
+                        
+                        with c3:
+                            # AÇÕES (Pagar e Deletar)
+                            col_pay, col_del = st.columns([2, 1])
                             
-                            with c1:
-                                st.markdown(f"### {row['Nome']}")
-                                st.caption(f"Vence dia {int(row.get('Dia_Vencimento', 10))}")
-                                st.progress(progresso, text=f"{int(row['Parcelas_Pagas'])}/{int(row['Parcelas_Totais'])} pagas")
-                            
-                            with c2:
-                                st.metric("Parcela", f"R$ {row['Valor_Parcela']:,.2f}")
-                                st.caption(f"Falta: R$ {saldo_devedor:,.2f}")
-                            
-                            with c3:
-                                # BOTÃO MÁGICO DE PAGAR
-                                if st.button("✅ Pagar", key=f"pay_loan_{row['ID']}"):
-                                    # 1. Lança no Extrato (Despesa)
-                                    nova_trans = {
-                                        "Data": date.today(),
-                                        "Tipo": "Despesa Fixa", # Ou criar tipo 'Empréstimo'
-                                        "Categoria": "Dívidas",
-                                        "Descricao": f"Parcela {row['Nome']} ({int(row['Parcelas_Pagas'])+1}/{int(row['Parcelas_Totais'])})",
-                                        "Valor_Total": row['Valor_Parcela'],
-                                        "Pagamento": "Pix", # Assumindo Pix/Débito
-                                        "Qtd_Parcelas": 1,
-                                        "Recorrente": False,
-                                        "Cartao_Ref": ""
-                                    }
-                                    df_trans = pd.concat([df_trans, pd.DataFrame([nova_trans])], ignore_index=True)
-                                    save_data(df_trans, "Transacoes")
-                                    
-                                    # 2. Atualiza a Dívida (Incrementa parcela paga)
-                                    df_loans.loc[df_loans['ID'] == row['ID'], 'Parcelas_Pagas'] += 1
-                                    
-                                    # 3. Verifica Quitação
-                                    if df_loans.loc[df_loans['ID'] == row['ID'], 'Parcelas_Pagas'].values[0] >= row['Parcelas_Totais']:
-                                        df_loans.loc[df_loans['ID'] == row['ID'], 'Status'] = "Quitado"
-                                        st.toast(f"Parabéns! Você quitou {row['Nome']}! 🎉")
-                                    
-                                    conexoes.save_gsheet("Emprestimos", df_loans)
-                                    st.success("Pago e registrado no extrato!")
-                                    st.rerun()
+                            # Botão Pagar
+                            if col_pay.button("✅ Pagar", key=f"pay_loan_{row['ID']}"):
+                                nova_trans = {
+                                    "Data": date.today(), "Tipo": "Despesa Fixa", "Categoria": "Dívidas",
+                                    "Descricao": f"Parcela {row['Nome']}", "Valor_Total": row['Valor_Parcela'],
+                                    "Pagamento": "Pix", "Qtd_Parcelas": 1, "Recorrente": False, "Cartao_Ref": ""
+                                }
+                                df_trans = pd.concat([df_trans, pd.DataFrame([nova_trans])], ignore_index=True)
+                                save_data(df_trans, "Transacoes")
+                                
+                                df_loans.loc[df_loans['ID'] == row['ID'], 'Parcelas_Pagas'] += 1
+                                if df_loans.loc[df_loans['ID'] == row['ID'], 'Parcelas_Pagas'].values[0] >= row['Parcelas_Totais']:
+                                    df_loans.loc[df_loans['ID'] == row['ID'], 'Status'] = "Quitado"
+                                    st.toast("Dívida Quitada!")
+                                
+                                conexoes.save_gsheet("Emprestimos", df_loans)
+                                st.rerun()
+
+                            # Botão Deletar (CORREÇÃO AQUI)
+                            if col_del.button("🗑️", key=f"del_loan_{row['ID']}", help="Excluir cadastro"):
+                                # Filtra removendo o ID selecionado
+                                df_loans = df_loans[df_loans['ID'] != row['ID']]
+                                conexoes.save_gsheet("Emprestimos", df_loans)
+                                st.success("Registro excluído.")
+                                st.rerun()
