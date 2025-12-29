@@ -1,108 +1,91 @@
 import streamlit as st
+import requests
 import pandas as pd
-from datetime import date
+from datetime import datetime
 from modules import conexoes
 
-def load_data():
-    """Carrega dados com proteção contra KeyError"""
-    # Definição exata das colunas que o código espera
-    cols_esperadas = ["ID_Serie", "Titulo", "Temporada", "Qtd_Episodios", "Vistos_Nesta_Temp", "Onde_Assistir"]
-    
-    df = conexoes.load_gsheet("Series", cols_esperadas)
-    
-    if df.empty:
-        return pd.DataFrame(columns=cols_esperadas)
-    
-    # --- SCHEMA SHIELD: Garante que as colunas existam antes de converter tipo ---
-    for col in cols_esperadas:
-        if col not in df.columns:
-            df[col] = 0 if "Qtd" in col or "Vistos" in col or "Temporada" in col else ""
+# Configurações da API
+TMDB_BASE_URL = "https://api.themoviedb.org/3"
+HEADERS = {
+    "Authorization": f"Bearer {st.secrets['TMDB_READ_TOKEN']}",
+    "accept": "application/json"
+}
 
-    # Converte tipos para operações matemáticas
-    df["Temporada"] = pd.to_numeric(df["Temporada"], errors='coerce').fillna(1).astype(int)
-    df["Qtd_Episodios"] = pd.to_numeric(df["Qtd_Episodios"], errors='coerce').fillna(1).astype(int)
-    df["Vistos_Nesta_Temp"] = pd.to_numeric(df["Vistos_Nesta_Temp"], errors='coerce').fillna(0).astype(int)
-    
-    return df
+def get_series_metadata(tmdb_id):
+    """Busca dados técnicos da série, temporadas e episódios via TMDB"""
+    url = f"{TMDB_BASE_URL}/tv/{tmdb_id}?language=pt-BR"
+    response = requests.get(url, headers=HEADERS)
+    return response.json() if response.status_code == 200 else None
 
-def save_data(df):
-    """Salva no GSheets convertendo para string para evitar erros de API"""
-    df_save = df.copy()
-    conexoes.save_gsheet("Series", df_save)
+def get_season_details(tmdb_id, season_number):
+    """Busca a lista de episódios de uma temporada específica"""
+    url = f"{TMDB_BASE_URL}/tv/{tmdb_id}/season/{season_number}?language=pt-BR"
+    response = requests.get(url, headers=HEADERS)
+    return response.json() if response.status_code == 200 else None
+
+def sync_tmdb_to_sheets(tmdb_id, serie_titulo):
+    """Função de Automação: Sincroniza episódios novos com o Log"""
+    data = get_series_metadata(tmdb_id)
+    if not data: return st.error("Erro ao conectar com TMDB")
+
+    # Carrega seus logs atuais
+    _, df_log = load_series_data() # Supondo que você já tenha essa função
+    
+    novos_episodios = []
+    
+    # Varre todas as temporadas retornadas pela API
+    for season in data['seasons']:
+        s_num = season['season_number']
+        if s_num == 0: continue # Ignora especiais
+        
+        details = get_season_details(tmdb_id, s_num)
+        if details:
+            for epi in details['episodes']:
+                # Verifica se você já tem esse episódio no Log
+                exists = not df_log[(df_log['Titulo'] == serie_titulo) & 
+                                   (df_log['Temporada'] == s_num) & 
+                                   (df_log['Episodio'] == epi['episode_number'])].empty
+                
+                if not exists:
+                    # Se não existe, prepara para adicionar como 'Pendente'
+                    novos_episodios.append({
+                        "Titulo": serie_titulo,
+                        "Temporada": s_num,
+                        "Episodio": epi['episode_number'],
+                        "Nome_Epi": epi['name'],
+                        "Nota_Estrelas": 0, # Você avaliará depois
+                        "Data_Visto": "Pendente"
+                    })
+    
+    if novos_episodios:
+        df_new = pd.concat([df_log, pd.DataFrame(novos_episodios)], ignore_index=True)
+        conexoes.save_gsheet("Series_Log", df_new)
+        return len(novos_episodios)
+    return 0
 
 def render_page():
-    st.header("📺 TV Time: Tracker de Precisão")
-    st.caption("Acompanhe o progresso exato de cada temporada.")
+    st.header("🎬 TV Time Pro: Segundo Cérebro")
     
-    df = load_data()
-
-    # --- INPUT: CADASTRO DE NOVA TEMPORADA ---
-    with st.expander("➕ Cadastrar Nova Temporada"):
-        with st.form("add_temp"):
-            c1, c2 = st.columns(2)
-            f_nome = c1.text_input("Nome da Série")
-            f_onde = c1.selectbox("Onde Assistir?", ["Netflix", "Disney+", "Prime Video", "HBO Max", "Apple TV", "Drive", "Torresmo"])
-            f_temp = c2.number_input("Temporada Nº", min_value=1, step=1)
-            f_eps = c2.number_input("Total de Episódios", min_value=1, step=1)
+    # Interface para adicionar nova série via Busca
+    with st.expander("🔍 Adicionar Série via TMDB"):
+        query = st.text_input("Buscar nome da série...")
+        if query:
+            search_url = f"{TMDB_BASE_URL}/search/tv?query={query}&language=pt-BR"
+            results = requests.get(search_url, headers=HEADERS).json().get('results', [])
             
-            if st.form_submit_button("Registrar Temporada"):
-                if f_nome:
-                    new_id = f"{f_nome.replace(' ', '')}_T{f_temp}"
-                    novo = {
-                        "ID_Serie": new_id, "Titulo": f_nome, "Temporada": f_temp, 
-                        "Qtd_Episodios": f_eps, "Vistos_Nesta_Temp": 0, "Onde_Assistir": f_onde
-                    }
-                    # Upsert: se já existe a temporada, remove antes de adicionar a nova versão
-                    if not df.empty:
-                        df = df[df['ID_Serie'] != new_id]
-                    
-                    df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
-                    save_data(df)
-                    st.success("Temporada salva na nuvem!")
-                    st.rerun()
-
-    # --- VISUALIZAÇÃO: O QUE ASSISTIR AGORA? ---
-    if not df.empty:
-        series_unicas = df["Titulo"].unique()
-        
-        for serie in series_unicas:
-            # Filtra e ordena temporadas da série específica
-            df_s = df[df["Titulo"] == serie].sort_values("Temporada")
-            
-            # Localiza a primeira temporada que ainda tem episódios pendentes
-            temp_atual_idx = df_s[df_s["Vistos_Nesta_Temp"] < df_s["Qtd_Episodios"]].first_valid_index()
-            
-            with st.container(border=True):
-                if temp_atual_idx is not None:
-                    row = df.loc[temp_atual_idx]
-                    proximo_epi = int(row['Vistos_Nesta_Temp']) + 1
-                    
-                    # Cálculo de progresso total da série (soma de todas as temps cadastradas)
-                    total_eps_serie = df_s["Qtd_Episodios"].sum()
-                    total_vistos_serie = df_s["Vistos_Nesta_Temp"].sum()
-                    progresso_global = total_vistos_serie / total_eps_serie if total_eps_serie > 0 else 0
-                    
-                    c1, c2, c3 = st.columns([3, 2, 1])
-                    with c1:
-                        st.subheader(serie)
-                        st.markdown(f"🚀 **Próximo: T{row['Temporada']} - E{proximo_epi}**")
-                        st.progress(min(progresso_global, 1.0))
-                        st.caption(f"📍 {row['Onde_Assistir']}")
-                    
-                    with c2:
-                        st.metric("Na Temporada", f"{row['Vistos_Nesta_Temp']}/{row['Qtd_Episodios']}")
-                        st.caption(f"Total: {total_vistos_serie} assistidos")
-                    
-                    with c3:
-                        if st.button("➕1", key=f"btn_{row['ID_Serie']}"):
-                            df.at[temp_atual_idx, "Vistos_Nesta_Temp"] += 1
-                            save_data(df)
+            for res in results[:3]: # Mostra os 3 primeiros
+                col1, col2 = st.columns([1, 3])
+                with col1:
+                    st.image(f"https://image.tmdb.org/t/p/w200{res['poster_path']}")
+                with col2:
+                    st.write(f"**{res['name']}** ({res['first_air_date'][:4]})")
+                    if st.button("Importar Catálogo Completo", key=res['id']):
+                        with st.spinner("Sincronizando episódios..."):
+                            count = sync_tmdb_to_sheets(res['id'], res['name'])
+                            # Salva também na Master
+                            # ... lógica para salvar na Series_Master ...
+                            st.success(f"{count} episódios importados!")
                             st.rerun()
-                else:
-                    st.success(f"🎉 {serie}: Maratona Concluída!")
-                    if st.button("Remover Série", key=f"del_{serie}"):
-                        df = df[df["Titulo"] != serie]
-                        save_data(df)
-                        st.rerun()
-    else:
-        st.info("Nenhuma série cadastrada. Use a barra lateral ou o formulário acima.")
+
+    # --- ABA DE CALENDÁRIO ---
+    # Aqui você pode usar os dados de 'air_date' da API para montar o seu calendário
