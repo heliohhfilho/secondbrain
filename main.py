@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 
-from modules import produtividade, viagens, faculdade, leituras, cursos, compras, projetos, financeiro, daytrade, dashboard, bio, alma, negocio, conhecimento, metas, hobbies, carros, decisoes, eisenhower, fear_setting, musica, filmes, cartoes, investimentos
+from modules import produtividade, viagens, faculdade, leituras, cursos, compras, projetos, financeiro, daytrade, dashboard, bio, alma, negocio, conhecimento, metas, hobbies, carros, decisoes, eisenhower, fear_setting, musica, filmes, cartoes, investimentos, series
 
 st.set_page_config(
     page_title="Segundo Cérebro",
@@ -45,6 +45,7 @@ with st.sidebar:
             "Fear Setting",
             "Musica",
             "Filmes",
+            "Series",
             "Cartões"
             ]
     )
@@ -128,3 +129,6 @@ if choice == "Cartões":
 
 if choice == "Investimentos":
     investimentos.render_page()
+
+if choice == "Series":
+    series.render_page()

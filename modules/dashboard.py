@@ -39,10 +39,12 @@ def load_all_data():
     df_trip = conexoes.load_gsheet("Viagens_Fin", ["Viagem", "Valor_Final_BRL", "Pago"])
     df_proj = conexoes.load_gsheet("Projetos", ["ID", "Nome", "Status"])
     df_task = conexoes.load_gsheet("Tarefas_Projetos", ["Projeto_ID", "Status"])
+
+    df_series = conexoes.load_gsheet("Series", ["Titulo", "Temporada", "Total_Episodios", "Eps_Assistidos", "Status", "Onde_Assistir"])
     
     return (df_trans, df_invest, df_trade, df_prod, df_read, df_bio, df_alma, 
             df_fac_conf, df_deals, df_metas, df_hobbies, df_eisen, df_fear, 
-            df_musica, df_filmes, df_trip, df_proj, df_task)
+            df_musica, df_filmes, df_trip, df_proj, df_task, df_series)
 
 # --- CÁLCULO DE METAS ---
 def calcular_progresso_meta(row, dados_externos):
@@ -75,7 +77,7 @@ def render_page():
     try:
         (df_trans, df_invest, df_trade, df_prod, df_read, df_bio, df_alma, 
         df_fac_conf, df_deals, df_metas, df_hobbies, df_eisen, df_fear, 
-        df_musica, df_filmes, df_trip, df_proj, df_task) = load_all_data()
+        df_musica, df_filmes, df_trip, df_proj, df_task, df_series) = load_all_data()
     except Exception as e:
         st.error(f"Erro ao carregar dados: {e}")
         return
@@ -280,7 +282,7 @@ def render_page():
 
     # 6. RODAPÉ (Foco Específico)
     st.subheader("🔍 Foco Específico & Cultura")
-    kp1, kp2, kp3, kp4, kp5, kp6 = st.columns(6)
+    kp1, kp2, kp3, kp4, kp5, kp6, kp7 = st.columns(7)
     
     with kp1:
         st.markdown(f"**📚 Leitura**: {lidos} Livros")
@@ -333,3 +335,12 @@ def render_page():
         
         st.markdown(f"**🎬 Filmes**: {filmes_vistos}")
         st.progress(min(filmes_vistos/52, 1.0)) # Meta 1 por semana
+
+    with kp7: # Adicione mais uma coluna no st.columns()
+        total_series_ativas = len(df_series[df_series['Status'] == 'Assistindo'])
+        st.markdown(f"**📺 Séries**: {total_series_ativas} em curso")
+        # Calcula progresso médio de todas as séries assistindo
+        if not df_series.empty:
+            avg_prog = df_series[df_series['Status'] == 'Assistindo']['Eps_Assistidos'].sum() / \
+                    df_series[df_series['Status'] == 'Assistindo']['Total_Episodios'].sum()
+            st.progress(min(avg_prog, 1.0))
