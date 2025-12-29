@@ -32,7 +32,7 @@ def load_data():
 
 def save_log(df):
     df_save = df.copy()
-    df_save["Visto"] = df_save["Visto"].astype(str).upper()
+    df_save["Visto"] = df_save["Visto"].astype(str).str.upper()
     conexoes.save_gsheet("Series_Log", df_save)
 
 def fetch_all_episodes(tmdb_id, titulo, total_seasons):
