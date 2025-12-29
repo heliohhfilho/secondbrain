@@ -111,7 +111,7 @@ def render_serie_card(serie, df_log, key_suffix, readonly=False):
                         column_config={
                             "Visto": st.column_config.CheckboxColumn("Vi", width="small"),
                             "Nota": st.column_config.NumberColumn("⭐", min_value=0, max_value=5, width="small"),
-                            "Episodio": st.column_config.TextColumn("Ep.", width="small"),
+                            "Episodio": st.column_config.NumberColumn("Ep.", format="%d", width="small"),
                             "Nome_Epi": st.column_config.TextColumn("Título", disabled=True),
                             "Data_Estreia": st.column_config.TextColumn("Data", disabled=True),
                         },
