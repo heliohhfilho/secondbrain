@@ -242,7 +242,7 @@ def render_page():
                     new_id = 1 if df_loans.empty else df_loans['ID'].max() + 1
                     novo = {"ID": new_id, "Nome": l_nome, "Valor_Original": l_orig, "Valor_Parcela": l_val_parc, "Parcelas_Totais": l_tot_parc, "Parcelas_Pagas": l_pagas, "Dia_Vencimento": l_dia, "Status": "Ativo", "Data_Inicio": date.today()}
                     df_loans = pd.concat([df_loans, pd.DataFrame([novo])], ignore_index=True)
-                    save_csv(df_loans, PATH_FIN_LOANS); st.success("Registrado."); st.rerun()
+                    save_data(df_loans, "Emprestimos"); st.success("Registrado."); st.rerun()
         
         with c_view:
             st.subheader("Carteira de Dívidas")
@@ -272,7 +272,7 @@ def render_page():
                             df_trans = pd.concat([df_trans, pd.DataFrame([nova_trans])], ignore_index=True)
                             df_loans.loc[df_loans['ID'] == row['ID'], 'Parcelas_Pagas'] += 1
                             if df_loans.loc[df_loans['ID'] == row['ID'], 'Parcelas_Pagas'].values[0] >= row['Parcelas_Totais']: df_loans.loc[df_loans['ID'] == row['ID'], 'Status'] = "Quitado"
-                            save_csv(df_trans, PATH_FIN_TRANS); save_csv(df_loans, PATH_FIN_LOANS); st.rerun()
+                            save_data(df_trans, "Transacoes"); save_data(df_loans, "Emprestimos"); st.rerun()
 
                         with col_amort.popover("🚀 Amortizar"):
                             val_amort = st.number_input("Valor (R$)", 0.0, step=100.0, key=f"va_{row['ID']}")
@@ -282,11 +282,11 @@ def render_page():
                                 df_trans = pd.concat([df_trans, pd.DataFrame([nova_trans])], ignore_index=True)
                                 df_loans.loc[df_loans['ID'] == row['ID'], 'Parcelas_Pagas'] += parc_elim
                                 if df_loans.loc[df_loans['ID'] == row['ID'], 'Parcelas_Pagas'].values[0] >= row['Parcelas_Totais']: df_loans.loc[df_loans['ID'] == row['ID'], 'Status'] = "Quitado"
-                                save_csv(df_trans, PATH_FIN_TRANS); save_csv(df_loans, PATH_FIN_LOANS); st.rerun()
+                                save_data(df_trans, "Transacoes"); save_data(df_loans, "Emprestimos"); st.rerun()
 
                         if col_quit.button("🗑️", key=f"dl_{row['ID']}"):
                             df_loans = df_loans[df_loans['ID'] != row['ID']]
-                            save_csv(df_loans, PATH_FIN_LOANS); st.rerun()
+                            save_data(df_loans, "Emprestimos"); st.rerun()
 
     # --- ABA 2: LANÇAMENTOS (ATUALIZADO COM CARTÃO) ---
     with tab_lan:
@@ -385,7 +385,7 @@ def render_page():
                     "Recorrente": rec, "Cartao_Ref": card_select
                 }
                 df_trans = pd.concat([df_trans, pd.DataFrame([nova])], ignore_index=True)
-                save_csv(df_trans, PATH_FIN_TRANS)
+                save_data(df_trans, "Transacoes")
                 st.success("Registrado com sucesso!")
                 st.rerun()
         
