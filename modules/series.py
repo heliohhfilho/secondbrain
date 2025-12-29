@@ -6,7 +6,6 @@ from modules import conexoes
 
 # --- CONFIGURAÇÃO API ---
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
-# Tenta pegar do secrets, se não tiver, avisa (evita crash)
 try:
     HEADERS = {
         "Authorization": f"Bearer {st.secrets['TMDB_READ_TOKEN']}",
@@ -15,201 +14,194 @@ try:
 except:
     HEADERS = {}
 
-# --- FUNÇÕES AUXILIARES ---
+# --- FUNÇÕES DE DADOS ---
 def load_data():
     df_master = conexoes.load_gsheet("Series_Master", ["ID_TMDB", "Titulo", "Status", "Poster_URL", "Total_Seasons"])
     df_log = conexoes.load_gsheet("Series_Log", ["ID_TMDB", "Titulo", "Temporada", "Episodio", "Nome_Epi", "Data_Estreia", "Visto", "Nota", "Data_Visto"])
     
-    # Saneamento
     if not df_master.empty: df_master["ID_TMDB"] = df_master["ID_TMDB"].astype(str)
     if not df_log.empty:
         df_log["ID_TMDB"] = df_log["ID_TMDB"].astype(str)
         df_log["Temporada"] = pd.to_numeric(df_log["Temporada"], errors='coerce').fillna(0).astype(int)
         df_log["Episodio"] = pd.to_numeric(df_log["Episodio"], errors='coerce').fillna(0).astype(int)
+        df_log["Nota"] = pd.to_numeric(df_log["Nota"], errors='coerce').fillna(0).astype(int)
+        # Garante booleano para os checkboxes funcionarem
         df_log["Visto"] = df_log["Visto"].astype(str).str.upper() == "TRUE"
         
     return df_master, df_log
 
 def save_log(df):
     df_save = df.copy()
+    # Converte booleano para string "TRUE"/"FALSE" pro GSheets
     df_save["Visto"] = df_save["Visto"].astype(str).str.upper()
     conexoes.save_gsheet("Series_Log", df_save)
 
+def save_master(df):
+    conexoes.save_gsheet("Series_Master", df)
+
 def fetch_all_episodes(tmdb_id, titulo, total_seasons):
-    novos_episodios = []
-    # Garante que tente pelo menos 1 temporada se a API tiver retornado 0
+    novos = []
     total_seasons = max(1, int(total_seasons))
     
-    status_text = st.empty()
-    prog_bar = st.progress(0)
+    placeholder = st.empty()
+    bar = st.progress(0)
     
-    for season_num in range(1, total_seasons + 2): # Tenta uma a mais por garantia
-        url = f"{TMDB_BASE_URL}/tv/{tmdb_id}/season/{season_num}?language=pt-BR"
+    for sn in range(1, total_seasons + 2):
         try:
-            resp = requests.get(url, headers=HEADERS)
-            if resp.status_code == 200:
-                data = resp.json()
-                episodes = data.get('episodes', [])
-                if not episodes: break # Se temporada vazia, para
-                
-                for ep in episodes:
-                    if ep['air_date']: # Só adiciona se tiver data (evita placeholder)
-                        novos_episodios.append({
-                            "ID_TMDB": str(tmdb_id),
-                            "Titulo": titulo,
-                            "Temporada": season_num,
-                            "Episodio": ep['episode_number'],
-                            "Nome_Epi": ep['name'],
-                            "Data_Estreia": ep['air_date'],
-                            "Visto": False,
-                            "Nota": 0,
-                            "Data_Visto": ""
+            url = f"{TMDB_BASE_URL}/tv/{tmdb_id}/season/{sn}?language=pt-BR"
+            r = requests.get(url, headers=HEADERS)
+            if r.status_code == 200:
+                data = r.json()
+                for ep in data.get('episodes', []):
+                    if ep.get('air_date'):
+                        novos.append({
+                            "ID_TMDB": str(tmdb_id), "Titulo": titulo,
+                            "Temporada": sn, "Episodio": ep['episode_number'],
+                            "Nome_Epi": ep['name'], "Data_Estreia": ep['air_date'],
+                            "Visto": False, "Nota": 0, "Data_Visto": ""
                         })
-                status_text.text(f"Baixando T{season_num}...")
+                placeholder.text(f"Baixando T{sn}...")
             else:
-                if season_num > 1: break # Se erro 404 e não é a primeira, acabou as temporadas
+                if sn > 1: break 
         except: pass
-        prog_bar.progress(min(season_num / (total_seasons + 1), 1.0))
-    
-    status_text.empty()
-    prog_bar.empty()
-    return novos_episodios
+        bar.progress(min(sn/(total_seasons+1), 1.0))
+        
+    placeholder.empty(); bar.empty()
+    return novos
 
 # --- RENDERIZAÇÃO ---
 def render_page():
-    st.header("🎬 TV Time: Ultimate Tracker")
+    st.header("🎬 TV Time: Antologia & Tracker")
     df_master, df_log = load_data()
 
-    tab_track, tab_add, tab_calendar = st.tabs(["📺 Assistir", "🔍 Adicionar", "🗓️ Calendário"])
+    tab_track, tab_add, tab_cal = st.tabs(["📺 Minhas Séries", "🔍 Adicionar", "🗓️ Calendário"])
 
     # ------------------------------------------------------------------
-    # ABA 1: TRACKER INTELIGENTE
+    # ABA 1: TRACKER COM CHECKLIST (ANTOLOGIA)
     # ------------------------------------------------------------------
     with tab_track:
         if df_master.empty:
             st.info("Nenhuma série ativa.")
         else:
-            series_ativas = df_master[df_master['Status'] == 'Ativo']
+            ativas = df_master[df_master['Status'] == 'Ativo']
             
-            for _, serie in series_ativas.iterrows():
-                # Filtra log da série
-                df_s = df_log[df_log['ID_TMDB'] == str(serie['ID_TMDB'])].sort_values(['Temporada', 'Episodio'])
+            for _, serie in ativas.iterrows():
+                # Filtra apenas episódios desta série
+                # Mantém o índice original para poder salvar depois!
+                mask_serie = df_log['ID_TMDB'] == str(serie['ID_TMDB'])
+                df_s = df_log[mask_serie].sort_values(['Temporada', 'Episodio'])
+                
+                # Métricas Gerais
+                total_eps = len(df_s)
+                vistos = df_s['Visto'].sum()
+                progresso = vistos / total_eps if total_eps > 0 else 0
                 
                 with st.container(border=True):
-                    c1, c2 = st.columns([1, 4])
+                    c1, c2 = st.columns([1, 5])
                     with c1:
                         if serie['Poster_URL']: st.image(f"https://image.tmdb.org/t/p/w200{serie['Poster_URL']}")
-                        else: st.write("🎬")
+                        else: st.write("📺")
                     
                     with c2:
-                        st.subheader(serie['Titulo'])
+                        st.subheader(f"{serie['Titulo']}")
+                        st.progress(progresso)
+                        st.caption(f"Progresso: {vistos}/{total_eps} episódios ({int(progresso*100)}%)")
                         
-                        # CASO 1: Log Vazio (Erro de Importação)
-                        if df_s.empty:
-                            st.error("⚠️ Nenhum episódio encontrado.")
-                            if st.button("🔄 Forçar Sincronização", key=f"sync_{serie['ID_TMDB']}"):
+                        # --- MODO ANTOLOGIA / LISTA DE EPISÓDIOS ---
+                        with st.expander("📂 Abrir Lista de Episódios (Checklist)", expanded=False):
+                            # Seletor de Temporada para não poluir a tela
+                            temps = sorted(df_s['Temporada'].unique())
+                            if not temps:
+                                st.warning("Sem episódios. Tente 'Forçar Sincronização'.")
+                            else:
+                                t_select = st.selectbox(f"Selecionar Temporada ({serie['Titulo']})", temps)
+                                
+                                # Filtra para edição visual, mas guardamos o Index para salvar
+                                df_view = df_s[df_s['Temporada'] == t_select][['Episodio', 'Nome_Epi', 'Visto', 'Nota', 'Data_Estreia']]
+                                
+                                # TABELA EDITÁVEL
+                                edited_df = st.data_editor(
+                                    df_view,
+                                    column_config={
+                                        "Visto": st.column_config.CheckboxColumn("Visto?", help="Marque para concluir"),
+                                        "Nota": st.column_config.NumberColumn("Nota (0-5)", min_value=0, max_value=5, step=1),
+                                        "Episodio": st.column_config.TextColumn("Ep."),
+                                        "Nome_Epi": st.column_config.TextColumn("Título", width="medium"),
+                                        "Data_Estreia": st.column_config.TextColumn("Data", disabled=True),
+                                    },
+                                    disabled=["Episodio", "Nome_Epi", "Data_Estreia"],
+                                    hide_index=True,
+                                    key=f"edit_{serie['ID_TMDB']}_{t_select}"
+                                )
+                                
+                                # BOTÃO DE SALVAR
+                                if st.button("💾 Salvar Progresso", key=f"save_{serie['ID_TMDB']}_{t_select}"):
+                                    # Atualiza o DataFrame Principal (df_log) usando os índices do editado
+                                    # O Streamlit retorna o dataframe editado mantendo os índices originais do pandas
+                                    df_log.loc[edited_df.index, ['Visto', 'Nota']] = edited_df[['Visto', 'Nota']]
+                                    
+                                    # Atualiza data de visto para hoje onde foi marcado como Visto recentemente
+                                    # (Lógica simplificada: se tá Visto e sem data, põe hoje)
+                                    mask_new_seen = (df_log['Visto'] == True) & (df_log['Data_Visto'] == "")
+                                    df_log.loc[mask_new_seen, 'Data_Visto'] = str(date.today())
+                                    
+                                    save_log(df_log)
+                                    st.success("Checklist atualizado!")
+                                    st.rerun()
+
+                        # Botão de Emergência (Sync)
+                        if total_eps == 0:
+                            if st.button("🔄 Baixar Episódios", key=f"sync_{serie['ID_TMDB']}"):
                                 eps = fetch_all_episodes(serie['ID_TMDB'], serie['Titulo'], serie['Total_Seasons'])
                                 if eps:
                                     df_log = pd.concat([df_log, pd.DataFrame(eps)], ignore_index=True)
                                     save_log(df_log)
-                                    st.success("Corrigido! A página irá recarregar.")
                                     st.rerun()
-                                else:
-                                    st.error("Falha ao baixar do TMDB. Verifique se a série foi lançada.")
-                        
-                        else:
-                            # CASO 2: Tem episódios
-                            pendentes = df_s[df_s['Visto'] == False]
-                            
-                            if not pendentes.empty:
-                                proximo = pendentes.iloc[0]
-                                idx_real = proximo.name
-                                
-                                st.markdown(f"**Próximo:** T{proximo['Temporada']}E{proximo['Episodio']} - *{proximo['Nome_Epi']}*")
-                                
-                                c_act1, c_act2 = st.columns([1, 1])
-                                if c_act1.button("✅ Visto (+1)", key=f"v_{serie['ID_TMDB']}"):
-                                    df_log.at[idx_real, 'Visto'] = True
-                                    df_log.at[idx_real, 'Data_Visto'] = str(date.today())
-                                    save_log(df_log); st.rerun()
-                                
-                                # --- BULK UPDATE (MARATONA) ---
-                                with st.expander("🚀 Opções Avançadas (Marcar Vários)"):
-                                    st.caption("Marcar tudo como visto até:")
-                                    cols_bulk = st.columns(3)
-                                    max_temp = df_s['Temporada'].max()
-                                    sel_temp = cols_bulk[0].number_input("Temp.", 1, int(max_temp), int(proximo['Temporada']), key=f"st_{serie['ID_TMDB']}")
-                                    
-                                    eps_da_temp = df_s[df_s['Temporada'] == sel_temp]['Episodio'].max()
-                                    sel_ep = cols_bulk[1].number_input("Epi.", 1, int(eps_da_temp) if eps_da_temp > 0 else 1, 1, key=f"se_{serie['ID_TMDB']}")
-                                    
-                                    if cols_bulk[2].button("Atualizar", key=f"bk_{serie['ID_TMDB']}"):
-                                        # Marca True em tudo que é anterior ou igual à seleção
-                                        mask_serie = df_log['ID_TMDB'] == str(serie['ID_TMDB'])
-                                        mask_ant = (df_log['Temporada'] < sel_temp) | \
-                                                   ((df_log['Temporada'] == sel_temp) & (df_log['Episodio'] <= sel_ep))
-                                        
-                                        df_log.loc[mask_serie & mask_ant, 'Visto'] = True
-                                        df_log.loc[mask_serie & mask_ant, 'Data_Visto'] = str(date.today())
-                                        save_log(df_log); st.rerun()
-
-                            else:
-                                st.success("🎉 Série em dia! Aguardando estreias.")
-                                if st.button("Buscar Novos Episódios", key=f"check_{serie['ID_TMDB']}"):
-                                    # Lógica simples de refresh
-                                    eps = fetch_all_episodes(serie['ID_TMDB'], serie['Titulo'], 100) # Tenta buscar tudo de novo
-                                    # Filtra só o que não tem no log
-                                    # (Simplificação: apenas avisa, implementação completa requer merge complexo)
-                                    st.info("Varredura completa.")
 
     # ------------------------------------------------------------------
-    # ABA 2: ADICIONAR (Mantida igual, mas robusta)
+    # ABA 2: ADICIONAR
     # ------------------------------------------------------------------
     with tab_add:
-        query = st.text_input("Buscar Série", placeholder="Ex: House of Cards")
-        if query:
-            url = f"{TMDB_BASE_URL}/search/tv?query={query}&language=pt-BR"
+        q = st.text_input("Buscar Série", placeholder="Black Mirror")
+        if q:
+            url = f"{TMDB_BASE_URL}/search/tv?query={q}&language=pt-BR"
             try:
-                results = requests.get(url, headers=HEADERS).json().get('results', [])
-                for res in results[:3]:
-                    with st.expander(f"{res['name']} ({res.get('first_air_date', 'Data desc.')[:4]})"):
-                        c_img, c_inf = st.columns([1, 4])
-                        with c_img:
-                            if res.get('poster_path'): st.image(f"https://image.tmdb.org/t/p/w200{res['poster_path']}")
-                        with c_inf:
-                            st.write(res.get('overview', '')[:200] + "...")
-                            if st.button("➕ Adicionar", key=f"add_{res['id']}"):
-                                # Adiciona Master
-                                new_m = {"ID_TMDB": str(res['id']), "Titulo": res['name'], "Status": "Ativo", 
-                                         "Poster_URL": res.get('poster_path'), "Total_Seasons": 1} # Default 1, update depois
+                res = requests.get(url, headers=HEADERS).json().get('results', [])
+                for r in res[:3]:
+                    with st.expander(f"{r['name']} ({r.get('first_air_date','')[:4]})"):
+                        c_img, c_inf = st.columns([1,4])
+                        if r.get('poster_path'): c_img.image(f"https://image.tmdb.org/t/p/w200{r['poster_path']}")
+                        c_inf.write(r.get('overview',''))
+                        if c_inf.button("➕ Adicionar", key=f"add_{r['id']}"):
+                            if df_master[df_master['ID_TMDB']==str(r['id'])].empty:
+                                new_m = {"ID_TMDB":str(r['id']), "Titulo":r['name'], "Status":"Ativo", 
+                                         "Poster_URL":r.get('poster_path'), "Total_Seasons":1}
+                                # Pega seasons real
+                                try:
+                                    det = requests.get(f"{TMDB_BASE_URL}/tv/{r['id']}", headers=HEADERS).json()
+                                    new_m['Total_Seasons'] = det.get('number_of_seasons', 1)
+                                except: pass
                                 
-                                # Verifica duplicidade
-                                if df_master[df_master['ID_TMDB'] == str(res['id'])].empty:
-                                    df_master = pd.concat([df_master, pd.DataFrame([new_m])], ignore_index=True)
-                                    conexoes.save_gsheet("Series_Master", df_master)
-                                    
-                                    # Baixa episódios
-                                    eps = fetch_all_episodes(res['id'], res['name'], 20) # Tenta até 20 temps
-                                    if eps:
-                                        df_log = pd.concat([df_log, pd.DataFrame(eps)], ignore_index=True)
-                                        save_log(df_log)
-                                        st.success(f"Adicionada com {len(eps)} episódios!")
-                                        st.rerun()
-                                else:
-                                    st.warning("Já cadastrada!")
-            except: st.error("Erro na busca TMDB. Verifique conexão.")
+                                conexoes.save_gsheet("Series_Master", pd.concat([df_master, pd.DataFrame([new_m])], ignore_index=True))
+                                eps = fetch_all_episodes(r['id'], r['name'], new_m['Total_Seasons'])
+                                if eps: save_log(pd.concat([df_log, pd.DataFrame(eps)], ignore_index=True))
+                                st.success("Série adicionada!"); st.rerun()
+                            else: st.warning("Já existe.")
+            except: pass
 
     # ------------------------------------------------------------------
     # ABA 3: CALENDÁRIO
     # ------------------------------------------------------------------
-    with tab_calendar:
-        st.subheader("🗓️ Próximas Estreias")
+    with tab_cal:
+        st.subheader("🗓️ Agenda de Lançamentos")
         if not df_log.empty:
-            hoje = date.today().strftime('%Y-%m-%d')
-            futuros = df_log[(df_log['Data_Estreia'] >= hoje) & (df_log['Visto'] == False)].sort_values('Data_Estreia')
+            hj = date.today().strftime('%Y-%m-%d')
+            # Filtra episódios futuros de séries ativas
+            mask_fut = (df_log['Data_Estreia'] >= hj) & (df_log['Visto'] == False)
+            df_fut = df_log[mask_fut].sort_values('Data_Estreia').head(15)
             
-            if not futuros.empty:
-                for _, row in futuros.head(10).iterrows():
-                    st.info(f"**{row['Data_Estreia']}**: {row['Titulo']} (T{row['Temporada']}E{row['Episodio']}) - {row['Nome_Epi']}")
+            if not df_fut.empty:
+                for _, row in df_fut.iterrows():
+                    st.info(f"**{row['Data_Estreia']}**: {row['Titulo']} - T{row['Temporada']}E{row['Episodio']} ({row['Nome_Epi']})")
             else:
-                st.write("Nada agendado para os próximos dias.")
+                st.write("Sem estreias previstas.")
