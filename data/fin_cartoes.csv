@@ -1,0 +1,4 @@
+Nome,Dia_Fechamento,Dia_Vencimento,ID,Bandeira,Pontos_por_Dolar,Limite
+Nubank,1,8,0,-,1.0,0.0
+Pan,1,10,0,-,1.0,0.0
+Nubank,2,9,1,Mastercard,0.0,4350.0

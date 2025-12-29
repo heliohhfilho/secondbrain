@@ -1,0 +1,5 @@
+Viagem,Categoria,Item,Valor_Moeda_Original,Moeda,Cotacao,Valor_Final_BRL,Pago,Data_Ida,Data_Volta
+Rio de Janeiro,Setup,Criação,0.01,BRL,1.0,0.01,True,2026-08-07,2026-08-12
+Rio de Janeiro,Geral,Hotel,1800.0,BRL,1.0,1800.0,False,2026-08-07,2026-08-12
+Rio de Janeiro,Alimentação,Estimativa Diária (5 dias x 250.0),1250.0,BRL,1.0,1250.0,False,2026-08-07,2026-08-12
+Rio de Janeiro,Geral,Voo,0.03,BRL,1.0,0.03,True,2026-08-07,2026-08-12

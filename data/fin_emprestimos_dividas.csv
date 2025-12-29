@@ -1,0 +1,4 @@
+ID,Nome,Valor_Parcela,Parcelas_Totais,Parcelas_Pagas,Status,Data_Inicio,Valor_Original,Dia_Vencimento
+5,Emprestimo Mercado Pago 2,257.84,18,2,Ativo,2025-12-29,2527.0,16
+6,Emprestimo Mercado Pago 3,55.33,18,0,Ativo,2025-12-29,521.0,16
+7,Emprestimo Mercado Pago 1,404.22,18,9,Ativo,2025-12-29,4000.0,16
