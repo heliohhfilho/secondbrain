@@ -336,11 +336,26 @@ def render_page():
         st.markdown(f"**🎬 Filmes**: {filmes_vistos}")
         st.progress(min(filmes_vistos/52, 1.0)) # Meta 1 por semana
 
-    with kp7: # Adicione mais uma coluna no st.columns()
-        total_series_ativas = len(df_series[df_series['Status'] == 'Assistindo'])
-        st.markdown(f"**📺 Séries**: {total_series_ativas} em curso")
-        # Calcula progresso médio de todas as séries assistindo
-        if not df_series.empty:
-            avg_prog = df_series[df_series['Status'] == 'Assistindo']['Eps_Assistidos'].sum() / \
-                    df_series[df_series['Status'] == 'Assistindo']['Total_Episodios'].sum()
-            st.progress(min(avg_prog, 1.0))
+    with kp7: # Ou a variável da coluna que você definiu
+        # Filtra apenas o que está sendo assistido
+        series_ativas = df_series[df_series['Status'] == 'Assistindo']
+        qtd_ativas = len(series_ativas)
+        
+        st.markdown(f"**📺 Séries**: {qtd_ativas} em curso")
+        
+        if not series_ativas.empty:
+            # Saneamento de dados antes do cálculo
+            total_vistos = pd.to_numeric(series_ativas['Eps_Assistidos'], errors='coerce').fillna(0).sum()
+            total_eps = pd.to_numeric(series_ativas['Total_Episodios'], errors='coerce').fillna(0).sum()
+            
+            # Lógica de Engenharia: Prevenção de Divisão por Zero
+            if total_eps > 0:
+                avg_prog = total_vistos / total_eps
+            else:
+                avg_prog = 0.0
+            
+            # Garante que o valor fique entre 0.0 e 1.0
+            st.progress(min(max(avg_prog, 0.0), 1.0))
+        else:
+            # Se não tem nada assistindo, progresso é zero
+            st.progress(0.0)
