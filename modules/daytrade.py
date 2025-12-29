@@ -5,19 +5,24 @@ from datetime import datetime, date, timedelta
 import os
 import plotly.graph_objects as go
 
-# --- ARQUIVOS ---
-PATH_DAYTRADE = os.path.join('data', 'daytrade.csv')
+from modules import conexoes
 
 def load_data():
-    if not os.path.exists(PATH_DAYTRADE):
-        return pd.DataFrame(columns=["Data", "Banca_Inicial", "Banca_Final", "Lucro", "Perc_Dia", "Risco_USD", "Saque_USD", "Aportes_USD"])
+    cols = ["Data", "Banca_Inicial", "Banca_Final", "Lucro", "Perc_Dia", "Risco_USD", "Saque_USD", "Aportes_USD"]
+    df = conexoes.load_gsheet("DayTrade", cols)
     
-    df = pd.read_csv(PATH_DAYTRADE)
-    if "Aportes_USD" not in df.columns: df["Aportes_USD"] = 0.0
+    if not df.empty:
+        # Saneamento para cálculos (converte tudo que é valor para float)
+        numeric_cols = ["Banca_Inicial", "Banca_Final", "Lucro", "Perc_Dia", "Risco_USD", "Saque_USD", "Aportes_USD"]
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
     return df
 
 def save_data(df):
-    df.to_csv(PATH_DAYTRADE, index=False)
+    # Converte a coluna de Data para string antes de salvar para evitar erro de JSON no GSheets
+    df_save = df.copy()
+    df_save['Data'] = df_save['Data'].astype(str)
+    conexoes.save_gsheet("DayTrade", df_save)
 
 def render_page():
     st.header("📈 Day Trade (Gestão & Performance)")
@@ -127,6 +132,7 @@ def render_page():
         if not edited_df.equals(df_edit):
             edited_df['Lucro'] = edited_df['Banca_Final'] - (edited_df['Banca_Inicial'] + edited_df['Aportes_USD'])
             edited_df['Perc_Dia'] = edited_df.apply(lambda x: (x['Lucro']/(x['Banca_Inicial']+x['Aportes_USD'])*100) if (x['Banca_Inicial']+x['Aportes_USD'])>0 else 0, axis=1)
+            edited_df = edited_df.sort_values("Data")
             save_data(edited_df)
             st.rerun()
             

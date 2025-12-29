@@ -2,11 +2,11 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import os
-from modules import conexao # <--- Conexão Nuvem
+from modules import conexoes # <--- Conexão Nuvem
 
 def load_data():
     cols = ["Curso", "Plataforma", "Total_Aulas", "Aulas_Feitas", "Link_Certificado", "Status"]
-    df = conexao.load_gsheet("Cursos", cols)
+    df = conexoes.load_gsheet("Cursos", cols)
     
     if not df.empty:
         # Saneamento de tipos para garantir cálculos de progresso
@@ -17,7 +17,7 @@ def load_data():
     return df
 
 def save_data(df):
-    conexao.save_gsheet("Cursos", df)
+    conexoes.save_gsheet("Cursos", df)
 
 def determine_status(feitas, total):
     if feitas > total: feitas = total
