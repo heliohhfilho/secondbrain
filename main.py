@@ -51,6 +51,10 @@ with st.sidebar:
     st.markdown("---")
     st.caption("V1.0 -- Helio")
 
+    if st.sidebar.button("🔄 Sincronizar Nuvem"):
+        st.cache_data.clear()
+        st.rerun()
+
 # --- ROTEAMENTO --- #
 
 if choice == "Produtividade":
@@ -124,7 +128,3 @@ if choice == "Cartões":
 
 if choice == "Investimentos":
     investimentos.render_page()
-
-if st.sidebar.button("🔄 Sincronizar Nuvem"):
-    st.cache_data.clear()
-    st.rerun()
