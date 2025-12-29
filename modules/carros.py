@@ -34,13 +34,30 @@ def get_fipe_details(marca_id, modelo_id, ano_id):
 
 # --- DADOS & SAVE ---
 def load_data():
+    # Definição do Schema Esperado
     cols = ["ID", "Marca", "Modelo", "Ano_Modelo", "Placa", "Fipe_Ref", "Preco_Negociado", "KM", "Zero_Cem", "Consumo_Medio", "Status", "Data_Add"]
+    
+    # Tenta carregar. Se a aba não existir ou estiver vazia, pode vir sem colunas.
     df = conexoes.load_gsheet("Carros", cols)
-    if not df.empty:
-        df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
-        df["Fipe_Ref"] = pd.to_numeric(df["Fipe_Ref"], errors='coerce').fillna(0.0)
-        df["Preco_Negociado"] = pd.to_numeric(df["Preco_Negociado"], errors='coerce').fillna(0.0)
-        df["Zero_Cem"] = pd.to_numeric(df["Zero_Cem"], errors='coerce').fillna(0.0)
+    
+    # --- SCHEMA SHIELD (BLINDAGEM) ---
+    # Se o DataFrame estiver vazio ou faltando colunas, cria a estrutura forçada
+    if df.empty:
+        df = pd.DataFrame(columns=cols)
+    else:
+        # Garante que todas as colunas essenciais existam, mesmo que vazias
+        for col in cols:
+            if col not in df.columns:
+                df[col] = 0 if col in ["ID", "Fipe_Ref", "Preco_Negociado", "KM", "Zero_Cem", "Consumo_Medio"] else ""
+
+    # --- TIPO DE DADOS (SAFE CAST) ---
+    # Agora é seguro converter, pois garantimos que a coluna existe acima
+    df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
+    df["Fipe_Ref"] = pd.to_numeric(df["Fipe_Ref"], errors='coerce').fillna(0.0)
+    df["Preco_Negociado"] = pd.to_numeric(df["Preco_Negociado"], errors='coerce').fillna(0.0)
+    df["Zero_Cem"] = pd.to_numeric(df["Zero_Cem"], errors='coerce').fillna(0.0)
+    df["Consumo_Medio"] = pd.to_numeric(df["Consumo_Medio"], errors='coerce').fillna(0.0)
+    
     return df
 
 def save_data(df):
