@@ -12,7 +12,7 @@ def load_data():
         df_p["ID"] = pd.to_numeric(df_p["ID"], errors='coerce').fillna(0).astype(int)
         df_p["Ano"] = pd.to_numeric(df_p["Ano"], errors='coerce').fillna(2025).astype(int)
 
-    # 2. Músicas (Detalhe Album)
+    # 2. Músicas
     cols_mus = ["ID_Projeto", "Faixa", "Titulo", "Letra", "Instr_Rec", "Vocal_Rec", "Mix_Master", "Obs"]
     df_m = conexoes.load_gsheet("Criatividade_Musica", cols_mus)
     if not df_m.empty:
@@ -21,7 +21,7 @@ def load_data():
         for c in ["Instr_Rec", "Vocal_Rec", "Mix_Master"]:
             df_m[c] = df_m[c].astype(str).str.upper() == "TRUE"
 
-    # 3. Escrita (Detalhe Série/Livro)
+    # 3. Escrita (Episódios)
     cols_esc = ["ID_Projeto", "Temporada", "Episodio", "Titulo", "Resumo_Ep", "Link_PDF", "Status_Escrita"]
     df_e = conexoes.load_gsheet("Criatividade_Escrita", cols_esc)
     if not df_e.empty:
@@ -29,7 +29,14 @@ def load_data():
         df_e["Temporada"] = pd.to_numeric(df_e["Temporada"], errors='coerce').fillna(1).astype(int)
         df_e["Episodio"] = pd.to_numeric(df_e["Episodio"], errors='coerce').fillna(1).astype(int)
     
-    return df_p, df_m, df_e
+    # 4. Temporadas (Metadados Chiques) - NOVO
+    cols_s = ["ID_Projeto", "Temp_Num", "Nome_Temporada"]
+    df_s = conexoes.load_gsheet("Criatividade_Temporadas", cols_s)
+    if not df_s.empty:
+        df_s["ID_Projeto"] = pd.to_numeric(df_s["ID_Projeto"], errors='coerce').fillna(0).astype(int)
+        df_s["Temp_Num"] = pd.to_numeric(df_s["Temp_Num"], errors='coerce').fillna(1).astype(int)
+
+    return df_p, df_m, df_e, df_s
 
 def save_data(df, aba):
     df_s = df.copy()
@@ -75,8 +82,8 @@ def render_album_workspace(projeto, df_m):
             "Instr_Rec": st.column_config.CheckboxColumn("🎹 Instr."),
             "Vocal_Rec": st.column_config.CheckboxColumn("🎤 Vocal"),
             "Mix_Master": st.column_config.CheckboxColumn("🎛️ Master"),
-            "Letra": st.column_config.TextColumn("Letra (Pop-up)", disabled=True),
-            "Obs": st.column_config.TextColumn("Notas de Eng.")
+            "Letra": st.column_config.TextColumn("Letra", disabled=True),
+            "Obs": st.column_config.TextColumn("Notas")
         },
         hide_index=True,
         use_container_width=True,
@@ -86,7 +93,7 @@ def render_album_workspace(projeto, df_m):
     
     c_save, c_lyrics = st.columns([1, 1])
     
-    if c_save.button("💾 Salvar Alterações de Produção", key=f"sv_alb_{projeto['ID']}"):
+    if c_save.button("💾 Salvar Alterações", key=f"sv_alb_{projeto['ID']}"):
         df_m = df_m[df_m['ID_Projeto'] != projeto['ID']]
         edited_df['ID_Projeto'] = projeto['ID']
         df_m = pd.concat([df_m, edited_df], ignore_index=True)
@@ -95,27 +102,25 @@ def render_album_workspace(projeto, df_m):
         st.rerun()
 
     with c_lyrics.popover("📝 Editar Letras"):
-        st.markdown("Selecione a faixa para editar a letra:")
+        st.markdown("Selecione a faixa:")
         faixa_sel = st.selectbox("Faixa", edited_df['Titulo'].unique())
         if faixa_sel:
-            # Encontra índice real no dataframe editado
             matches = edited_df[edited_df['Titulo'] == faixa_sel]
             if not matches.empty:
                 letra_atual = matches.iloc[0]['Letra']
                 nova_letra = st.text_area("Composição", value=letra_atual if pd.notna(letra_atual) else "", height=300)
                 
                 if st.button("Salvar Letra"):
-                    # Busca no dataframe original para salvar persistente
                     mask_real = (df_m['ID_Projeto'] == projeto['ID']) & (df_m['Titulo'] == faixa_sel)
                     if not df_m.loc[mask_real].empty:
                         df_m.loc[mask_real, 'Letra'] = nova_letra
                         save_data(df_m, "Criatividade_Musica")
                         st.success("Letra salva!")
                     else:
-                        st.warning("Faixa ainda não salva no banco. Salve a produção primeiro.")
+                        st.warning("Salve a tracklist primeiro.")
 
-# --- WORKSPACE: SÉRIE/LIVRO ---
-def render_writer_workspace(projeto, df_e):
+# --- WORKSPACE: SÉRIE/LIVRO (ATUALIZADO) ---
+def render_writer_workspace(projeto, df_e, df_s):
     st.markdown(f"## ✍️ Sala de Roteiro: {projeto['Titulo']}")
     
     c_capa, c_plan = st.columns([1, 3])
@@ -125,32 +130,69 @@ def render_writer_workspace(projeto, df_e):
         
     with c_plan:
         st.caption(f"Tipo: {projeto['Tipo']} | Gênero: {projeto['Genero']}")
-        with st.expander("🧠 Planejamento da História", expanded=False):
-            st.text_area("Resumo Geral", value=projeto['Resumo_Geral'], height=150, disabled=True)
+        with st.expander("🧠 Resumo Geral", expanded=False):
+            st.text_area("Sinopse", value=projeto['Resumo_Geral'], height=100, disabled=True)
+        
+        # --- GERENCIADOR DE TEMPORADAS (NOVO) ---
+        with st.expander("📚 Gerenciar Temporadas / Arcos", expanded=True):
+            c_add1, c_add2, c_add3 = st.columns([1, 3, 1])
+            new_t_num = c_add1.number_input("Nº Temporada", 1, 50, 1)
+            new_t_name = c_add2.text_input("Nome (Ex: O Início)", placeholder="Título do Arco")
+            
+            if c_add3.button("➕ Criar/Renomear"):
+                # Remove se já existir para atualizar
+                df_s = df_s[~((df_s['ID_Projeto'] == projeto['ID']) & (df_s['Temp_Num'] == new_t_num))]
+                
+                new_row = {"ID_Projeto": projeto['ID'], "Temp_Num": new_t_num, "Nome_Temporada": new_t_name}
+                df_s = pd.concat([df_s, pd.DataFrame([new_row])], ignore_index=True)
+                save_data(df_s, "Criatividade_Temporadas")
+                st.success(f"Temporada {new_t_num} salva!")
+                st.rerun()
 
     st.divider()
     st.subheader("📑 Capítulos & Episódios")
     
-    mask = df_e['ID_Projeto'] == projeto['ID']
-    df_episodes = df_e.loc[mask].sort_values(["Temporada", "Episodio"])
+    # Prepara Dropdown com Nomes Chiques
+    seasons_meta = df_s[df_s['ID_Projeto'] == projeto['ID']].sort_values('Temp_Num')
     
-    temps = sorted(df_episodes['Temporada'].unique()) if not df_episodes.empty else [1]
-    if not df_episodes.empty:
-        temp_sel = st.selectbox("Temporada / Livro", temps)
-        df_view = df_episodes[df_episodes['Temporada'] == temp_sel]
-    else:
-        temp_sel = 1
-        df_view = pd.DataFrame(columns=df_episodes.columns)
+    # Cria dicionário {1: "1. O Início", 2: "2. A Guerra"}
+    season_map = {}
+    if not seasons_meta.empty:
+        for _, r in seasons_meta.iterrows():
+            season_map[int(r['Temp_Num'])] = f"{int(r['Temp_Num'])}. {r['Nome_Temporada']}"
+            
+    # Garante que as temporadas que tem episódios existam no map, mesmo sem nome
+    mask_eps = df_e['ID_Projeto'] == projeto['ID']
+    df_episodes = df_e.loc[mask_eps]
+    
+    existing_temps = sorted(df_episodes['Temporada'].unique()) if not df_episodes.empty else [1]
+    
+    # Se não tiver nada, cria Temp 1 default
+    options = []
+    for t in set(existing_temps) | set(season_map.keys()):
+        options.append(t)
+    options = sorted(list(options))
+    
+    if not options: options = [1]
+    
+    # Função para formatar o display do Selectbox
+    def format_func(opt):
+        return season_map.get(opt, f"Temporada {opt}")
+
+    temp_sel = st.selectbox("Selecione o Arco:", options, format_func=format_func)
+    
+    # Filtra view
+    df_view = df_episodes[df_episodes['Temporada'] == temp_sel] if not df_episodes.empty else pd.DataFrame(columns=df_e.columns)
 
     edited_eps = st.data_editor(
         df_view,
         column_config={
             "ID_Projeto": None,
-            "Temporada": None,
+            "Temporada": None, # Fixo
             "Episodio": st.column_config.NumberColumn("Ep.", width="small"),
-            "Titulo": st.column_config.TextColumn("Título", width="medium"),
-            "Resumo_Ep": st.column_config.TextColumn("Sinopse Curta"),
-            "Link_PDF": st.column_config.LinkColumn("📄 Link PDF/Doc"),
+            "Titulo": st.column_config.TextColumn("Título do Capítulo", width="medium"),
+            "Resumo_Ep": st.column_config.TextColumn("Sinopse"),
+            "Link_PDF": st.column_config.LinkColumn("📄 Doc"),
             "Status_Escrita": st.column_config.SelectboxColumn("Status", options=["Ideia", "Roteiro", "Revisão", "Finalizado"])
         },
         hide_index=True,
@@ -159,28 +201,30 @@ def render_writer_workspace(projeto, df_e):
         key=f"ed_writ_{projeto['ID']}_{temp_sel}"
     )
     
-    if st.button("💾 Salvar Episódios", key=f"sv_writ_{projeto['ID']}"):
+    if st.button("💾 Salvar Roteiro", key=f"sv_writ_{projeto['ID']}"):
         mask_remove = (df_e['ID_Projeto'] == projeto['ID']) & (df_e['Temporada'] == temp_sel)
         df_e = df_e[~mask_remove]
+        
         edited_eps['ID_Projeto'] = projeto['ID']
         edited_eps['Temporada'] = temp_sel
+        
         df_e = pd.concat([df_e, edited_eps], ignore_index=True)
         save_data(df_e, "Criatividade_Escrita")
-        st.success("Roteiro atualizado!")
+        st.success("Roteiro salvo!")
         st.rerun()
 
 # --- MAIN PAGE ---
 def render_page():
     st.header("🎨 Creative Studio")
-    df_p, df_m, df_e = load_data()
+    df_p, df_m, df_e, df_s = load_data()
     
-    tab_galeria, tab_novo = st.tabs(["🖼️ Galeria de Projetos", "➕ Novo Projeto"])
+    tab_galeria, tab_novo = st.tabs(["🖼️ Galeria", "➕ Novo Projeto"])
     
     with tab_galeria:
         if df_p.empty:
-            st.info("Nenhum projeto criativo iniciado.")
+            st.info("Nenhum projeto.")
         else:
-            tipos = st.multiselect("Filtrar Tipo", df_p['Tipo'].unique())
+            tipos = st.multiselect("Filtrar", df_p['Tipo'].unique())
             df_show = df_p[df_p['Tipo'].isin(tipos)] if tipos else df_p
             
             cols = st.columns(3)
@@ -189,30 +233,26 @@ def render_page():
                     with st.container(border=True):
                         if row['Capa_URL']: st.image(row['Capa_URL'], use_column_width=True)
                         st.markdown(f"### {row['Titulo']}")
-                        st.caption(f"{row['Tipo']} • {row['Genero']}")
+                        st.caption(f"{row['Tipo']}")
                         
-                        # --- BOTOES DE AÇÃO (ABRIR E DELETAR) ---
                         c_open, c_del = st.columns([4, 1])
                         
-                        if c_open.button("Abrir Projeto", key=f"open_{row['ID']}"):
+                        if c_open.button("Abrir", key=f"open_{row['ID']}"):
                             st.session_state['proj_ativo'] = row.to_dict()
                             st.rerun()
                         
-                        # --- BOTÃO DE DELETAR (Cascading Delete) ---
-                        if c_del.button("🗑️", key=f"del_proj_{row['ID']}", help="Excluir Projeto e Todo Conteúdo"):
+                        if c_del.button("🗑️", key=f"del_{row['ID']}"):
                             id_del = row['ID']
-                            # 1. Deleta Filhos (Músicas e Episódios)
+                            # Cascading Delete (Incluindo Temporadas)
                             df_m = df_m[df_m['ID_Projeto'] != id_del]
                             df_e = df_e[df_e['ID_Projeto'] != id_del]
-                            # 2. Deleta Pai (Projeto)
+                            df_s = df_s[df_s['ID_Projeto'] != id_del]
                             df_p = df_p[df_p['ID'] != id_del]
                             
-                            # Salva tudo
                             save_data(df_m, "Criatividade_Musica")
                             save_data(df_e, "Criatividade_Escrita")
+                            save_data(df_s, "Criatividade_Temporadas")
                             save_data(df_p, "Criatividade_Projetos")
-                            
-                            st.toast("Projeto e arquivos deletados.")
                             st.rerun()
             
             if 'proj_ativo' in st.session_state:
@@ -225,25 +265,24 @@ def render_page():
                 if proj['Tipo'] in ['Álbum Musical', 'EP', 'Single']:
                     render_album_workspace(proj, df_m)
                 else:
-                    render_writer_workspace(proj, df_e)
+                    render_writer_workspace(proj, df_e, df_s)
 
     with tab_novo:
-        st.subheader("Tirar a ideia do papel")
+        st.subheader("Novo Projeto")
         with st.form("new_creative"):
             c1, c2 = st.columns(2)
-            titulo = c1.text_input("Título do Projeto")
-            tipo = c2.selectbox("Tipo", ["Álbum Musical", "Série Escrita", "Livro", "Coletânea Poesia", "EP"])
+            titulo = c1.text_input("Título")
+            tipo = c2.selectbox("Tipo", ["Série Escrita", "Livro", "Álbum Musical", "EP"])
             
             c3, c4 = st.columns(2)
-            genero = c3.text_input("Gênero", "Experimental")
-            ano = c4.number_input("Ano Lançamento", 2024, 2030, 2025)
+            genero = c3.text_input("Gênero")
+            ano = c4.number_input("Ano", 2024, 2030, 2025)
             
-            st.markdown("---")
-            capa = st.text_input("URL da Capa")
-            contra = st.text_input("URL da Contra-Capa (Opcional)")
-            resumo = st.text_area("Resumo / Conceito / Sinopse")
+            capa = st.text_input("URL Capa")
+            contra = st.text_input("URL Contra-Capa")
+            resumo = st.text_area("Sinopse")
             
-            if st.form_submit_button("Criar Projeto"):
+            if st.form_submit_button("Criar"):
                 new_id = 1 if df_p.empty else df_p['ID'].max() + 1
                 novo = {
                     "ID": new_id, "Titulo": titulo, "Tipo": tipo, "Genero": genero, "Ano": ano,
@@ -251,5 +290,5 @@ def render_page():
                 }
                 df_p = pd.concat([df_p, pd.DataFrame([novo])], ignore_index=True)
                 save_data(df_p, "Criatividade_Projetos")
-                st.success(f"Projeto '{titulo}' criado!")
+                st.success("Criado!")
                 st.rerun()
