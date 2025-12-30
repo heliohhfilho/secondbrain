@@ -7,44 +7,43 @@ from modules import conexoes
 # --- FUNÇÕES AUXILIARES ---
 def load_data():
     """
-    Carrega os dados e trata a ausência de colunas novas para evitar KeyError.
+    Carrega os dados passando as colunas obrigatórias para o módulo conexoes.
     """
     # 1. Transações
-    df_t = conexoes.load_gsheet("Transacoes")
+    cols_t = ["Data", "Tipo", "Categoria", "Descricao", "Valor_Total", "Pagamento", "Qtd_Parcelas", "Recorrente", "Cartao_Ref"]
+    df_t = conexoes.load_gsheet("Transacoes", cols_t)
+    
     if not df_t.empty:
-        # Garante colunas mínimas
-        cols_t = ["Data", "Tipo", "Categoria", "Descricao", "Valor_Total", "Pagamento", "Qtd_Parcelas", "Recorrente", "Cartao_Ref"]
-        for col in cols_t:
-            if col not in df_t.columns: df_t[col] = ""
-            
         df_t["Data"] = pd.to_datetime(df_t["Data"], errors='coerce')
         df_t["Valor_Total"] = pd.to_numeric(df_t["Valor_Total"], errors='coerce').fillna(0.0)
         df_t["Qtd_Parcelas"] = pd.to_numeric(df_t["Qtd_Parcelas"], errors='coerce').fillna(1).astype(int)
     
     # 2. Cartões
-    df_c = conexoes.load_gsheet("Cartoes")
+    cols_c = ["ID", "Nome", "Dia_Fechamento"]
+    df_c = conexoes.load_gsheet("Cartoes", cols_c)
     
-    # 3. Empréstimos (Tratamento de erro robusto)
-    df_l = conexoes.load_gsheet("Emprestimos")
+    # 3. Empréstimos 
+    # Passamos as colunas originais para garantir que o load_gsheet funcione
+    cols_l = ["ID", "Nome", "Valor_Parcela", "Parcelas_Totais", "Parcelas_Pagas", "Status", "Dia_Vencimento"]
+    df_l = conexoes.load_gsheet("Emprestimos", cols_l)
     
     if not df_l.empty:
-        # --- MIGRAÇÃO AUTOMÁTICA DE SCHEMA ---
-        # Se não tiver a coluna nova "Valor_Parcela_Original", cria baseada na antiga "Valor_Parcela"
+        # --- MIGRAÇÃO DE SCHEMA (PÓS-LOAD) ---
+        # Garante que as colunas novas de engenharia existam no DataFrame, mesmo que não venham da planilha
+        
         if "Valor_Parcela_Original" not in df_l.columns:
             val_antigo = df_l.get("Valor_Parcela", 0.0)
             df_l["Valor_Parcela_Original"] = pd.to_numeric(val_antigo, errors='coerce').fillna(0.0)
             
-        # Se não tiver "Parcelas_Restantes", calcula: Total - Pagas
         if "Parcelas_Restantes" not in df_l.columns:
             tot = pd.to_numeric(df_l.get("Parcelas_Totais", 0), errors='coerce').fillna(0)
             pag = pd.to_numeric(df_l.get("Parcelas_Pagas", 0), errors='coerce').fillna(0)
             df_l["Parcelas_Restantes"] = (tot - pag).astype(int)
-            
-        # Garante tipos numéricos para não dar erro na soma
+        
+        # Tipagem forçada para evitar erros de cálculo
         df_l["Valor_Parcela_Original"] = pd.to_numeric(df_l["Valor_Parcela_Original"], errors='coerce').fillna(0.0)
         df_l["Parcelas_Restantes"] = pd.to_numeric(df_l["Parcelas_Restantes"], errors='coerce').fillna(0).astype(int)
         
-        # Garante coluna de Status
         if "Status" not in df_l.columns:
             df_l["Status"] = "Ativo"
 
@@ -101,7 +100,7 @@ def render_page():
                 idx_pg = 0
             else:
                 pgto_opts = ["Pix", "Débito", "Crédito", "Dinheiro", "Automático"]
-                idx_pg = 0 # Default Pix
+                idx_pg = 0 
 
             forma_pgto = c6.selectbox("Forma Pagamento", pgto_opts, index=idx_pg)
             
@@ -113,7 +112,6 @@ def render_page():
             if forma_pgto == "Crédito" or tipo_mov == "Cartão":
                 cartao_ref = c7.selectbox("Qual Cartão?", lista_cartoes)
             else:
-                # Se for Pix/Dinheiro, desabilita e limpa
                 c7.text_input("Cartão", value="N/A", disabled=True)
                 cartao_ref = ""
 
@@ -170,9 +168,7 @@ def render_page():
 
             if st.button("💾 Salvar Alterações da Tabela"):
                 # Atualiza o DF principal: Remove as linhas antigas desse mês e insere as novas editadas
-                # 1. Remove dados do mês atual do dataframe original
                 df_trans = df_trans[~mask_mes]
-                # 2. Concatena os dados editados
                 df_trans = pd.concat([df_trans, edited_df], ignore_index=True)
                 
                 save_changes(df_trans, "Transacoes")
@@ -300,3 +296,6 @@ def render_page():
                                     
                                     st.toast("Pagamento processado!")
                                     st.rerun()
+
+if __name__ == "__main__":
+    render_page()
