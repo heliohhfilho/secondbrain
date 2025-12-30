@@ -177,65 +177,73 @@ def render_page():
                 res = df_cat.groupby("Categoria")['Valor_Total'].sum().reset_index().sort_values("Valor_Total", ascending=False)
                 st.dataframe(res, hide_index=True, use_container_width=True, column_config={"Valor_Total": st.column_config.NumberColumn(format="R$ %.2f")})
 
-    # --- ABA 2: LANÇAMENTO ---
+    # --- ABA 2: LANÇAMENTO (SEM FORMULÁRIO PARA PERMITIR INTERATIVIDADE) ---
     with tab_add:
         st.caption("O sistema calcula automaticamente o vencimento correto para evitar juros.")
-        with st.form("form_smart", clear_on_submit=True):
-            l1_a, l1_b, l1_c = st.columns(3)
-            dt_compra = l1_a.date_input("Data da Ocorrência", date.today())
-            tipo = l1_b.selectbox("Tipo", ["Despesa Variável", "Despesa Fixa", "Cartão", "Receita", "Investimento"])
-            valor = l1_c.number_input("Valor TOTAL", min_value=0.01)
-            
-            l2_a, l2_b = st.columns(2)
-            desc = l2_a.text_input("Descrição")
-            
-            opts = ["Pix", "Débito", "Dinheiro", "Crédito"]
-            if tipo == "Cartão": opts = ["Crédito"]
-            if tipo == "Receita": opts = ["Pix", "Dinheiro"]
-            
-            pagamento = l2_b.selectbox("Pagamento", opts)
-            
-            l3_a, l3_b, l3_c = st.columns(3)
-            # Dropdown de cartões sempre visível mas habilitado condicionalmente
-            nomes_cartoes = list(regras_cartoes.keys())
-            
-            cartao_disabled = True if pagamento != "Crédito" else False
-            cartao = l3_a.selectbox("Cartão", nomes_cartoes, disabled=cartao_disabled)
-            
-            parcelas = l3_b.number_input("Vezes", 1, 60, 1, disabled=cartao_disabled)
-            categ = l3_c.text_input("Categoria", "Geral")
+        
+        # Removemos o st.form para permitir que a seleção de Pagamento destrave o Cartão em tempo real
+        
+        l1_a, l1_b, l1_c = st.columns(3)
+        dt_compra = l1_a.date_input("Data da Ocorrência", date.today())
+        tipo = l1_b.selectbox("Tipo", ["Despesa Variável", "Despesa Fixa", "Cartão", "Receita", "Investimento"])
+        valor = l1_c.number_input("Valor TOTAL", min_value=0.01)
+        
+        l2_a, l2_b = st.columns(2)
+        desc = l2_a.text_input("Descrição")
+        
+        # Lógica de Opções
+        opts = ["Pix", "Débito", "Dinheiro", "Crédito"]
+        if tipo == "Cartão": opts = ["Crédito"]
+        if tipo == "Receita": opts = ["Pix", "Dinheiro"]
+        
+        # Agora, ao mudar isso, o Streamlit roda o script e atualiza a variável abaixo
+        pagamento = l2_b.selectbox("Pagamento", opts)
+        
+        l3_a, l3_b, l3_c = st.columns(3)
+        
+        # Lógica de Cartão (Agora funciona!)
+        nomes_cartoes = list(regras_cartoes.keys())
+        cartao_disabled = True if pagamento != "Crédito" else False
+        
+        cartao = l3_a.selectbox("Cartão", nomes_cartoes, disabled=cartao_disabled)
+        parcelas = l3_b.number_input("Vezes", 1, 60, 1, disabled=cartao_disabled)
+        categ = l3_c.text_input("Categoria", "Geral")
 
-            if st.form_submit_button("Lançar"):
-                rows = []
-                # Se não for crédito, garante que parcelas e cartão estejam zerados para evitar sujeira
-                if pagamento != "Crédito":
-                    parcelas = 1
-                    cartao = ""
+        st.divider()
 
-                valor_p = valor / parcelas
-                uuid_grp = str(uuid.uuid4())[:8]
+        # Botão solto (fora de form)
+        if st.button("🚀 Lançar Registro", type="primary"):
+            rows = []
+            
+            # Sanitização
+            if pagamento != "Crédito":
+                parcelas = 1
+                cartao = ""
+
+            valor_p = valor / parcelas
+            uuid_grp = str(uuid.uuid4())[:8]
+            
+            for i in range(parcelas):
+                data_real_parcela = dt_compra + relativedelta(months=i)
+                desc_f = desc
+                if parcelas > 1: desc_f = f"{desc} ({i+1}/{parcelas})"
                 
-                for i in range(parcelas):
-                    data_real_parcela = dt_compra + relativedelta(months=i)
-                    desc_f = desc
-                    if parcelas > 1: desc_f = f"{desc} ({i+1}/{parcelas})"
-                    
-                    rows.append({
-                        "Data": data_real_parcela,
-                        "Tipo": tipo,
-                        "Categoria": categ,
-                        "Descricao": desc_f,
-                        "Valor_Total": valor_p,
-                        "Pagamento": pagamento,
-                        "Qtd_Parcelas": parcelas,
-                        "Cartao_Ref": cartao,
-                        "ID_Compra": uuid_grp
-                    })
-                
-                df_trans = pd.concat([df_trans, pd.DataFrame(rows)], ignore_index=True)
-                save_full_dataframe(df_trans)
-                st.success(f"Registrado!")
-                st.rerun()
+                rows.append({
+                    "Data": data_real_parcela,
+                    "Tipo": tipo,
+                    "Categoria": categ,
+                    "Descricao": desc_f,
+                    "Valor_Total": valor_p,
+                    "Pagamento": pagamento,
+                    "Qtd_Parcelas": parcelas,
+                    "Cartao_Ref": cartao,
+                    "ID_Compra": uuid_grp
+                })
+            
+            df_trans = pd.concat([df_trans, pd.DataFrame(rows)], ignore_index=True)
+            save_full_dataframe(df_trans)
+            st.success(f"Registrado com sucesso!")
+            st.rerun() # Força atualização do Dashboard
 
     # --- ABA 3: EDITOR ---
     with tab_edit:
