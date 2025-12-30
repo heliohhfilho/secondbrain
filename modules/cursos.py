@@ -5,13 +5,16 @@ import os
 from modules import conexoes # <--- Conexão Nuvem
 
 def load_data():
-    cols = ["Curso", "Plataforma", "Total_Aulas", "Aulas_Feitas", "Link_Certificado", "Status"]
+    # Adicionei "Aulas_Por_Semana" na lista de colunas
+    cols = ["Curso", "Plataforma", "Total_Aulas", "Aulas_Feitas", "Link_Certificado", "Status", "Aulas_Por_Semana"]
     df = conexoes.load_gsheet("Cursos", cols)
     
     if not df.empty:
-        # Saneamento de tipos para garantir cálculos de progresso
+        # Saneamento de tipos
         df["Total_Aulas"] = pd.to_numeric(df["Total_Aulas"], errors='coerce').fillna(1).astype(int)
         df["Aulas_Feitas"] = pd.to_numeric(df["Aulas_Feitas"], errors='coerce').fillna(0).astype(int)
+        # Se não tiver ritmo definido (cursos antigos), assume 5 por padrão
+        df["Aulas_Por_Semana"] = pd.to_numeric(df["Aulas_Por_Semana"], errors='coerce').fillna(5).astype(int)
         df["Link_Certificado"] = df["Link_Certificado"].fillna("")
         
     return df
@@ -36,25 +39,27 @@ def render_page():
         nome = st.text_input("Nome do Curso")
         plataforma = st.text_input("Plataforma")
         total_aulas = st.number_input("Total de Aulas", min_value=1, value=50)
+        # Adicionei o ritmo inicial aqui
+        ritmo_ini = st.number_input("Ritmo (Aulas/Semana)", min_value=1, value=5)
         
         if st.button("Matricular"):
             if nome:
                 novo = {
                     "Curso": nome, "Plataforma": plataforma, 
                     "Total_Aulas": total_aulas, "Aulas_Feitas": 0, 
-                    "Link_Certificado": "", "Status": "Na Fila"
+                    "Link_Certificado": "", "Status": "Na Fila",
+                    "Aulas_Por_Semana": ritmo_ini # Salva o ritmo individual
                 }
                 df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
                 save_data(df)
-                st.success("Curso cadastrado na nuvem!")
+                st.success("Curso cadastrado!")
                 st.rerun()
 
         st.divider()
-        ritmo = st.slider("Aulas por semana?", 1, 50, 5)
+        st.info("💡 Agora você pode definir velocidades diferentes para cada curso nas opções de edição (⚙️).")
 
     # --- KPIs GERAIS ---
     if not df.empty:
-        # Atualização dinâmica de status
         df['Status'] = df.apply(lambda x: determine_status(x['Aulas_Feitas'], x['Total_Aulas']), axis=1)
         
         k1, k2, k3 = st.columns(3)
@@ -72,18 +77,24 @@ def render_page():
 
     # --- FUNÇÃO DE EDIÇÃO (CRUD) ---
     def render_edit_controls(idx, row):
-        with st.expander("⚙️ Opções", expanded=False):
+        with st.expander("⚙️ Editar / Ajustar Velocidade", expanded=False):
             with st.form(key=f"form_curso_{idx}"):
                 c1, c2 = st.columns(2)
                 n_nome = c1.text_input("Curso", row['Curso'])
                 n_plat = c2.text_input("Plataforma", row['Plataforma'])
-                n_link = st.text_input("Link Certificado", row['Link_Certificado'])
                 
-                if st.form_submit_button("Salvar"):
+                # NOVO CAMPO: Edição de velocidade individual
+                c3, c4 = st.columns(2)
+                n_ritmo = c3.number_input("Ritmo Atual (Aulas/sem)", min_value=1, value=int(row['Aulas_Por_Semana']))
+                n_link = c4.text_input("Link Certificado", row['Link_Certificado'])
+                
+                if st.form_submit_button("Salvar Alterações"):
                     df.at[idx, 'Curso'] = n_nome
                     df.at[idx, 'Plataforma'] = n_plat
+                    df.at[idx, 'Aulas_Por_Semana'] = n_ritmo # Atualiza o ritmo
                     df.at[idx, 'Link_Certificado'] = n_link
                     save_data(df)
+                    st.success("Atualizado!")
                     st.rerun()
 
             if st.button("🗑️ Excluir", key=f"del_c_{idx}"):
@@ -113,11 +124,18 @@ def render_page():
                         save_data(df)
                         st.rerun()
 
-                # Previsão Matemática (Engenharia de Cronograma)
+                # Previsão Matemática (Baseada no Ritmo Individual)
                 restam = row['Total_Aulas'] - row['Aulas_Feitas']
-                dias = (restam / ritmo) * 7
-                data_fim = datetime.now() + timedelta(days=dias)
-                st.caption(f"📅 Previsão de Conclusão: {data_fim.strftime('%d/%m/%Y')} (Ritmo: {ritmo}/sem)")
+                ritmo_curso = row['Aulas_Por_Semana'] # Pega o valor da coluna
+                
+                if ritmo_curso > 0:
+                    dias = (restam / ritmo_curso) * 7
+                    data_fim = datetime.now() + timedelta(days=dias)
+                    msg_prev = f"📅 Previsão: {data_fim.strftime('%d/%m/%Y')} (Ritmo: {ritmo_curso}/sem)"
+                else:
+                    msg_prev = "Defina um ritmo > 0 para ver a previsão."
+                
+                st.caption(msg_prev)
                 render_edit_controls(idx, row)
 
     with tab_fila:
