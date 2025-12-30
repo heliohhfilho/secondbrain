@@ -2,90 +2,124 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
-from modules import conexoes # Mantendo seu módulo original
+from modules import conexoes
 
-# --- CONFIGURAÇÕES GLOBAIS ---
-st.set_page_config(layout="wide", page_title="Financeiro Eng.", page_icon="📈")
-
-# --- FUNÇÕES AUXILIARES (UTILS) ---
-def load_data_safe():
-    """Carregamento resiliente dos dados para evitar quebras de tipo."""
+# --- FUNÇÕES AUXILIARES ---
+def load_data():
+    """
+    Carrega os dados e trata a ausência de colunas novas para evitar KeyError.
+    """
     # 1. Transações
-    df_t = conexoes.load_gsheet("Transacoes", ["Data", "Tipo", "Categoria", "Descricao", "Valor_Total", "Pagamento", "Qtd_Parcelas", "Recorrente", "Cartao_Ref"])
+    df_t = conexoes.load_gsheet("Transacoes")
     if not df_t.empty:
+        # Garante colunas mínimas
+        cols_t = ["Data", "Tipo", "Categoria", "Descricao", "Valor_Total", "Pagamento", "Qtd_Parcelas", "Recorrente", "Cartao_Ref"]
+        for col in cols_t:
+            if col not in df_t.columns: df_t[col] = ""
+            
         df_t["Data"] = pd.to_datetime(df_t["Data"], errors='coerce')
         df_t["Valor_Total"] = pd.to_numeric(df_t["Valor_Total"], errors='coerce').fillna(0.0)
         df_t["Qtd_Parcelas"] = pd.to_numeric(df_t["Qtd_Parcelas"], errors='coerce').fillna(1).astype(int)
     
     # 2. Cartões
-    df_c = conexoes.load_gsheet("Cartoes", ["ID", "Nome", "Dia_Fechamento"])
+    df_c = conexoes.load_gsheet("Cartoes")
     
-    # 3. Empréstimos (Schema atualizado para suportar amortização)
-    df_l = conexoes.load_gsheet("Emprestimos", ["ID", "Nome", "Valor_Parcela_Original", "Saldo_Devedor_Atual", "Parcelas_Restantes", "Status", "Dia_Vencimento"])
+    # 3. Empréstimos (Tratamento de erro robusto)
+    df_l = conexoes.load_gsheet("Emprestimos")
+    
     if not df_l.empty:
+        # --- MIGRAÇÃO AUTOMÁTICA DE SCHEMA ---
+        # Se não tiver a coluna nova "Valor_Parcela_Original", cria baseada na antiga "Valor_Parcela"
+        if "Valor_Parcela_Original" not in df_l.columns:
+            val_antigo = df_l.get("Valor_Parcela", 0.0)
+            df_l["Valor_Parcela_Original"] = pd.to_numeric(val_antigo, errors='coerce').fillna(0.0)
+            
+        # Se não tiver "Parcelas_Restantes", calcula: Total - Pagas
+        if "Parcelas_Restantes" not in df_l.columns:
+            tot = pd.to_numeric(df_l.get("Parcelas_Totais", 0), errors='coerce').fillna(0)
+            pag = pd.to_numeric(df_l.get("Parcelas_Pagas", 0), errors='coerce').fillna(0)
+            df_l["Parcelas_Restantes"] = (tot - pag).astype(int)
+            
+        # Garante tipos numéricos para não dar erro na soma
         df_l["Valor_Parcela_Original"] = pd.to_numeric(df_l["Valor_Parcela_Original"], errors='coerce').fillna(0.0)
         df_l["Parcelas_Restantes"] = pd.to_numeric(df_l["Parcelas_Restantes"], errors='coerce').fillna(0).astype(int)
+        
+        # Garante coluna de Status
+        if "Status" not in df_l.columns:
+            df_l["Status"] = "Ativo"
 
     return df_t, df_c, df_l
 
 def save_changes(df, tab_name):
-    """Função genérica de salvamento (Commit)"""
+    """Salva os dados formatando a data corretamente para o Google Sheets"""
     df_save = df.copy()
     if "Data" in df_save.columns:
-        df_save["Data"] = df_save["Data"].apply(lambda x: x.strftime('%Y-%m-%d') if pd.notnull(x) else "")
+        df_save["Data"] = pd.to_datetime(df_save["Data"]).apply(lambda x: x.strftime('%Y-%m-%d') if pd.notnull(x) else "")
     conexoes.save_gsheet(tab_name, df_save)
 
-# --- APP PRINCIPAL ---
+# --- ENGINE FINANCEIRA ---
 def render_page():
-    st.title("🏎️ Controle Financeiro - Engenharia de Capital")
-    df_trans, df_cards, df_loans = load_data_safe()
+    st.header("💎 Central Financeira - Engenharia")
+    df_trans, df_cards, df_loans = load_data()
 
     tab_input, tab_flow, tab_macro, tab_debt = st.tabs([
         "📝 Input (C.R.U.E)", 
-        "🔎 Fluxo Micro (Mês)", 
-        "🔭 Visão Macro (Ano)", 
-        "🏦 Engenharia de Dívida"
+        "🔎 Extrato (Mês)", 
+        "🔭 Visão Macro", 
+        "🏦 Empréstimos"
     ])
 
     # ==============================================================================
-    # 1. ABA DE INPUT (CORRIGIDA)
+    # 1. ABA DE INPUT 
     # ==============================================================================
     with tab_input:
-        st.caption("Otimizado para lançamentos rápidos e consistentes.")
+        st.info("Preencha os dados da movimentação.")
         
         with st.form("main_form", clear_on_submit=True):
+            # Linha 1
             c1, c2, c3 = st.columns(3)
-            dt_input = c1.date_input("Data do Fato", date.today())
+            dt_input = c1.date_input("Data", date.today())
             tipo_mov = c2.selectbox("Tipo", ["Despesa Variável", "Despesa Fixa", "Cartão", "Receita", "Investimento", "Amortização"])
             categ = c3.text_input("Categoria", "Geral")
 
-            c4, c5 = st.columns([3, 1])
+            # Linha 2
+            c4, c5 = st.columns([2, 1])
             desc = c4.text_input("Descrição")
-            valor = c5.number_input("Valor Efetivo (R$)", min_value=0.01, format="%.2f")
+            valor = c5.number_input("Valor (R$)", min_value=0.01, step=10.0, format="%.2f")
 
-            st.markdown("---")
+            st.divider()
+            
+            # Linha 3 - Lógica de Pagamento
             c6, c7, c8 = st.columns(3)
             
-            # Lógica Condicional de Pagamento
-            pgto_opts = ["Pix", "Débito", "Dinheiro", "Crédito"]
-            # Se for Receita, não faz sentido ser Crédito
+            # Define opções de pagamento baseado no tipo
             if tipo_mov == "Receita":
                 pgto_opts = ["Pix", "Transferência", "Dinheiro"]
+                idx_pg = 0
+            elif tipo_mov == "Cartão":
+                pgto_opts = ["Crédito"] # Força Crédito se o tipo é Cartão
+                idx_pg = 0
+            else:
+                pgto_opts = ["Pix", "Débito", "Crédito", "Dinheiro", "Automático"]
+                idx_pg = 0 # Default Pix
+
+            forma_pgto = c6.selectbox("Forma Pagamento", pgto_opts, index=idx_pg)
             
-            forma_pgto = c6.selectbox("Método", pgto_opts)
-            
-            # Lógica Condicional de Cartão (Só habilita se for Crédito ou Gasto Cartão)
+            # Lógica de Cartão: SÓ habilita se for Crédito ou Tipo Cartão
             lista_cartoes = df_cards['Nome'].unique().tolist() if not df_cards.empty else []
             cartao_ref = ""
             
-            if tipo_mov == "Cartão" or forma_pgto == "Crédito":
-                cartao_ref = c7.selectbox("Alocar em qual fatura?", lista_cartoes)
+            # Se for Crédito OU selecionou Tipo Cartão, mostra o selectbox
+            if forma_pgto == "Crédito" or tipo_mov == "Cartão":
+                cartao_ref = c7.selectbox("Qual Cartão?", lista_cartoes)
             else:
-                c7.text_input("Alocar em qual fatura?", value="N/A", disabled=True)
+                # Se for Pix/Dinheiro, desabilita e limpa
+                c7.text_input("Cartão", value="N/A", disabled=True)
+                cartao_ref = ""
 
             parc = c8.number_input("Parcelas", 1, 60, 1)
 
-            if st.form_submit_button("🚀 Lançar no Sistema"):
+            if st.form_submit_button("💾 Salvar Lançamento", type="primary"):
                 novo_reg = {
                     "Data": dt_input, "Tipo": tipo_mov, "Categoria": categ,
                     "Descricao": desc, "Valor_Total": valor, "Pagamento": forma_pgto,
@@ -93,141 +127,176 @@ def render_page():
                 }
                 df_trans = pd.concat([df_trans, pd.DataFrame([novo_reg])], ignore_index=True)
                 save_changes(df_trans, "Transacoes")
-                st.success("Registro inserido com sucesso!")
+                st.success(f"✅ Lançado: {desc} - R$ {valor}")
                 st.rerun()
 
     # ==============================================================================
-    # 2. FLUXO MICRO (EDITE DIRETAMENTE AQUI)
+    # 2. FLUXO MICRO (EDITÁVEL)
     # ==============================================================================
     with tab_flow:
-        st.subheader("Extrato Mensal Editável")
+        st.subheader("🕵️ Extrato do Mês")
         col_filtro, _ = st.columns([1,3])
-        mes_ref = col_filtro.date_input("Mês de Referência", date.today())
+        mes_ref = col_filtro.date_input("Filtrar Mês", date.today())
         
-        # Filtro de Data
-        mask_mes = (df_trans['Data'].dt.month == mes_ref.month) & (df_trans['Data'].dt.year == mes_ref.year)
-        df_mes = df_trans[mask_mes].copy()
+        if not df_trans.empty:
+            # Filtro de Data
+            mask_mes = (df_trans['Data'].dt.month == mes_ref.month) & (df_trans['Data'].dt.year == mes_ref.year)
+            df_mes = df_trans[mask_mes].copy()
+            
+            # Cálculo de totais
+            entradas = df_mes[df_mes['Tipo'] == 'Receita']['Valor_Total'].sum()
+            saidas = df_mes[df_mes['Tipo'] != 'Receita']['Valor_Total'].sum()
+            
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Entradas", f"R$ {entradas:,.2f}")
+            k2.metric("Saídas", f"R$ {saidas:,.2f}")
+            k3.metric("Saldo Líquido", f"R$ {entradas - saidas:,.2f}")
 
-        # Data Editor permite CRUE direto na tabela
-        edited_df = st.data_editor(
-            df_mes,
-            num_rows="dynamic",
-            column_config={
-                "Valor_Total": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
-            },
-            use_container_width=True,
-            key="editor_micro"
-        )
+            st.caption("Edite diretamente na tabela abaixo para corrigir ou excluir lançamentos.")
+            
+            # Data Editor com opção de deletar
+            edited_df = st.data_editor(
+                df_mes,
+                num_rows="dynamic", # Permite adicionar/remover linhas
+                column_config={
+                    "Valor_Total": st.column_config.NumberColumn(format="R$ %.2f"),
+                    "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
+                    "Qtd_Parcelas": st.column_config.NumberColumn(format="%d"),
+                },
+                column_order=["Data", "Descricao", "Valor_Total", "Tipo", "Categoria", "Pagamento", "Cartao_Ref"],
+                use_container_width=True,
+                key="editor_micro_key"
+            )
 
-        # Botão para salvar alterações feitas na tabela
-        if st.button("💾 Persistir Alterações do Mês"):
-            # Atualiza o dataframe principal com as mudanças do mês
-            df_trans.update(edited_df)
-            # Para deleções, precisaria de logica mais complexa de index, 
-            # mas o update cobre edições. Para deletar, use o num_rows dynamic.
-            save_changes(df_trans, "Transacoes")
-            st.success("Base de dados atualizada.")
+            if st.button("💾 Salvar Alterações da Tabela"):
+                # Atualiza o DF principal: Remove as linhas antigas desse mês e insere as novas editadas
+                # 1. Remove dados do mês atual do dataframe original
+                df_trans = df_trans[~mask_mes]
+                # 2. Concatena os dados editados
+                df_trans = pd.concat([df_trans, edited_df], ignore_index=True)
+                
+                save_changes(df_trans, "Transacoes")
+                st.success("Tabela atualizada com sucesso!")
+                st.rerun()
 
     # ==============================================================================
-    # 3. VISÃO MACRO (EXCEL STYLE)
+    # 3. VISÃO MACRO
     # ==============================================================================
     with tab_macro:
-        st.subheader("📅 Visão Anual (Projeção & Realizado)")
+        st.subheader("📅 Visão Anual")
         if not df_trans.empty:
-            df_trans['Mes_Ano'] = df_trans['Data'].dt.to_period('M')
+            df_view = df_trans.copy()
+            df_view['Mes_Ano'] = df_view['Data'].dt.to_period('M')
             
-            # Pivot Table: Linhas = Categoria, Colunas = Mês, Valores = Soma
-            pivot = df_trans.pivot_table(
+            pivot = df_view.pivot_table(
                 index="Categoria", 
                 columns="Mes_Ano", 
                 values="Valor_Total", 
                 aggfunc="sum", 
                 fill_value=0
             )
-            
-            # Adiciona totalizadores
-            pivot.loc['TOTAL'] = pivot.sum()
+            # Ordenar colunas cronologicamente
+            pivot = pivot.sort_index(axis=1)
             
             st.dataframe(pivot.style.format("R$ {:,.2f}"), use_container_width=True)
-            st.caption("Nota: Valores negativos ou saídas devem ser interpretados conforme o tipo.")
         else:
-            st.info("Insira dados para gerar a projeção.")
+            st.info("Sem dados para projeção.")
 
     # ==============================================================================
-    # 4. ENGENHARIA DE DÍVIDA (AMORTIZAÇÃO)
+    # 4. EMPRÉSTIMOS E AMORTIZAÇÃO
     # ==============================================================================
     with tab_debt:
         c_left, c_right = st.columns([1, 2])
         
+        # --- CADASTRO ---
         with c_left:
-            st.markdown("### 🛡️ Gestão de Passivo")
+            st.markdown("### ➕ Novo Contrato")
             with st.form("add_loan"):
-                st.write("Novo Contrato")
-                nome_div = st.text_input("Instituição/Motivo")
-                val_parc = st.number_input("Valor da Parcela Original", min_value=0.0)
-                tot_parc = st.number_input("Total de Parcelas", min_value=1)
+                nome_div = st.text_input("Nome (Ex: Financiamento)")
+                val_parc = st.number_input("Valor Parcela", min_value=0.0)
+                tot_parc = st.number_input("Total de Parcelas", min_value=1, value=12)
                 
-                if st.form_submit_button("Criar Dívida"):
-                    novo_emprestimo = {
-                        "ID": len(df_loans) + 1,
+                if st.form_submit_button("Cadastrar"):
+                    new_id = 1 if df_loans.empty else df_loans['ID'].max() + 1 if 'ID' in df_loans else 1
+                    novo_emp = {
+                        "ID": new_id,
                         "Nome": nome_div,
                         "Valor_Parcela_Original": val_parc,
-                        "Saldo_Devedor_Atual": val_parc * tot_parc, # Estimativa inicial
                         "Parcelas_Restantes": tot_parc,
                         "Status": "Ativo",
-                        "Dia_Vencimento": 10
+                        # Campos de compatibilidade
+                        "Valor_Parcela": val_parc,
+                        "Parcelas_Totais": tot_parc,
+                        "Parcelas_Pagas": 0
                     }
-                    df_loans = pd.concat([df_loans, pd.DataFrame([novo_emprestimo])], ignore_index=True)
+                    df_loans = pd.concat([df_loans, pd.DataFrame([novo_emp])], ignore_index=True)
                     save_changes(df_loans, "Emprestimos")
+                    st.success("Cadastrado!")
                     st.rerun()
 
+        # --- GESTÃO ---
         with c_right:
-            st.markdown("### 📉 Amortização & Pagamentos")
+            st.markdown("### 📉 Carteira Ativa")
             
-            ativos = df_loans[df_loans['Status'] == 'Ativo']
-            
-            for idx, row in ativos.iterrows():
-                with st.expander(f"{row['Nome']} | Restam: {row['Parcelas_Restantes']}x", expanded=True):
-                    c_a, c_b, c_c = st.columns(3)
-                    c_a.metric("Parcela Base", f"R$ {row['Valor_Parcela_Original']:,.2f}")
-                    c_b.metric("Restante (aprox)", f"R$ {row['Valor_Parcela_Original'] * row['Parcelas_Restantes']:,.2f}")
-                    
-                    st.markdown("#### Realizar Pagamento ou Amortização")
-                    
-                    with st.form(f"pay_form_{row['ID']}"):
-                        col_val, col_elim = st.columns(2)
-                        valor_pago = col_val.number_input("Valor Desembolsado (R$)", min_value=0.0, step=100.0, help="Quanto saiu do seu bolso hoje?")
-                        parc_elim = col_elim.number_input("Parcelas Eliminadas", min_value=0, step=1, help="Inclui a do mês + as amortizadas de trás pra frente")
-                        
-                        if st.form_submit_button("🔥 Processar Pagamento"):
-                            # 1. Atualiza Dívida
-                            novo_restante = max(0, row['Parcelas_Restantes'] - parc_elim)
-                            df_loans.loc[idx, 'Parcelas_Restantes'] = novo_restante
-                            
-                            if novo_restante == 0:
-                                df_loans.loc[idx, 'Status'] = "Quitado"
-                                st.balloons()
-                            
-                            save_changes(df_loans, "Emprestimos")
-                            
-                            # 2. Lança no Fluxo de Caixa (Saída Real)
-                            lancamento_amort = {
-                                "Data": date.today(),
-                                "Tipo": "Despesa Fixa",
-                                "Categoria": "Amortização Dívida",
-                                "Descricao": f"Pagto {row['Nome']} (-{parc_elim} parc)",
-                                "Valor_Total": valor_pago,
-                                "Pagamento": "Pix", # Geralmente amortização é à vista
-                                "Qtd_Parcelas": 1,
-                                "Recorrente": False,
-                                "Cartao_Ref": ""
-                            }
-                            df_trans = pd.concat([df_trans, pd.DataFrame([lancamento_amort])], ignore_index=True)
-                            save_changes(df_trans, "Transacoes")
-                            
-                            st.success("Amortização processada e fluxo atualizado!")
-                            st.rerun()
+            # Filtra ativos
+            if not df_loans.empty and "Status" in df_loans.columns:
+                ativos = df_loans[df_loans['Status'] == 'Ativo']
+            else:
+                ativos = pd.DataFrame()
 
-if __name__ == "__main__":
-    main()
+            if ativos.empty:
+                st.info("Nenhuma dívida ativa.")
+            else:
+                for idx, row in ativos.iterrows():
+                    val_p = row.get('Valor_Parcela_Original', 0)
+                    restante = row.get('Parcelas_Restantes', 0)
+                    saldo_est = val_p * restante
+
+                    with st.expander(f"💳 {row['Nome']} | Restam: {restante}x", expanded=True):
+                        col_info, col_action = st.columns([1, 1])
+                        
+                        with col_info:
+                            st.metric("Parcela", f"R$ {val_p:,.2f}")
+                            st.metric("Saldo Devedor (Est.)", f"R$ {saldo_est:,.2f}")
+
+                        with col_action:
+                            st.markdown("**Amortizar ou Pagar**")
+                            with st.form(f"pay_{row.get('ID', idx)}"):
+                                v_pago = st.number_input("Valor Pago (R$)", min_value=0.0, step=10.0, key=f"v_{row.get('ID', idx)}")
+                                p_elim = st.number_input("Parcelas Eliminadas", min_value=1, step=1, key=f"p_{row.get('ID', idx)}")
+                                
+                                if st.form_submit_button("🔥 Lançar Pagamento"):
+                                    # 1. Atualiza Dívida
+                                    novo_saldo_p = max(0, restante - p_elim)
+                                    # Busca pelo ID ou Index para garantir update correto
+                                    if 'ID' in df_loans.columns:
+                                        real_idx = df_loans[df_loans['ID'] == row['ID']].index[0]
+                                    else:
+                                        real_idx = idx
+                                        
+                                    df_loans.at[real_idx, 'Parcelas_Restantes'] = novo_saldo_p
+                                    # Atualiza pagas tb para manter consistencia
+                                    pagas_atual = df_loans.at[real_idx, 'Parcelas_Pagas'] if 'Parcelas_Pagas' in df_loans.columns else 0
+                                    df_loans.at[real_idx, 'Parcelas_Pagas'] = pagas_atual + p_elim
+                                    
+                                    if novo_saldo_p == 0:
+                                        df_loans.at[real_idx, 'Status'] = "Quitado"
+                                    
+                                    save_changes(df_loans, "Emprestimos")
+                                    
+                                    # 2. Lança no Fluxo
+                                    rec = {
+                                        "Data": date.today(),
+                                        "Tipo": "Despesa Fixa",
+                                        "Categoria": "Amortização",
+                                        "Descricao": f"Pagto {row['Nome']}",
+                                        "Valor_Total": v_pago,
+                                        "Pagamento": "Pix",
+                                        "Qtd_Parcelas": 1,
+                                        "Cartao_Ref": ""
+                                    }
+                                    df_trans = pd.concat([df_trans, pd.DataFrame([rec])], ignore_index=True)
+                                    save_changes(df_trans, "Transacoes")
+                                    
+                                    st.toast("Pagamento processado!")
+                                    st.rerun()
