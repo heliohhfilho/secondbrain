@@ -5,15 +5,19 @@ import os
 from modules import conexoes # <--- Conexão Nuvem
 
 def load_data():
-    # Adicionei "Aulas_Por_Semana" na lista de colunas
+    # Adicionei "Aulas_Por_Semana" na lista de colunas esperadas
     cols = ["Curso", "Plataforma", "Total_Aulas", "Aulas_Feitas", "Link_Certificado", "Status", "Aulas_Por_Semana"]
     df = conexoes.load_gsheet("Cursos", cols)
     
     if not df.empty:
+        # --- CORREÇÃO (SCHEMA MIGRATION) ---
+        # Se a coluna não existir no Sheets antigo, cria ela na memória com valor padrão 5
+        if "Aulas_Por_Semana" not in df.columns:
+            df["Aulas_Por_Semana"] = 5
+
         # Saneamento de tipos
         df["Total_Aulas"] = pd.to_numeric(df["Total_Aulas"], errors='coerce').fillna(1).astype(int)
         df["Aulas_Feitas"] = pd.to_numeric(df["Aulas_Feitas"], errors='coerce').fillna(0).astype(int)
-        # Se não tiver ritmo definido (cursos antigos), assume 5 por padrão
         df["Aulas_Por_Semana"] = pd.to_numeric(df["Aulas_Por_Semana"], errors='coerce').fillna(5).astype(int)
         df["Link_Certificado"] = df["Link_Certificado"].fillna("")
         
