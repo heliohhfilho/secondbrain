@@ -154,7 +154,7 @@ def render_page():
         else:
             df_view = pd.DataFrame()
 
-    tab_dash, tab_add, tab_edit = st.tabs(["📈 Visão 360", "➕ Lançamento", "📝 Editor"])
+    tab_dash, tab_add, tab_edit, tab_risk = st.tabs(["📈 Visão 360", "➕ Lançamento", "📝 Editor", "⚠️ Parcelar Fatura"])
 
     # --- ABA 1: VISÃO GERAL ---
     with tab_dash:
@@ -277,6 +277,83 @@ def render_page():
             save_full_dataframe(df_trans)
             st.success("Salvo!")
             st.rerun()
+
+    # ==============================================================================
+    # ABA 4: ZONA DE PERIGO (PARCELAMENTO DE FATURA)
+    # ==============================================================================
+    with tab_risk:
+        st.warning("⚠️ Atenção: Esta ferramenta refinancia sua dívida de cartão. Use com sabedoria.")
+        
+        with st.form("form_refin", clear_on_submit=True):
+            col_r1, col_r2 = st.columns(2)
+            
+            # Seleção do Cartão
+            nomes_cartoes = list(regras_cartoes.keys())
+            cartao_alvo = col_r1.selectbox("Qual fatura será parcelada?", nomes_cartoes)
+            
+            # Valor total da dívida atual (apenas referência ou para cálculo)
+            valor_divida = col_r2.number_input("Valor Total da Fatura (R$)", min_value=0.01)
+            
+            st.divider()
+            
+            c_ent, c_parc_val, c_qtd = st.columns(3)
+            
+            # 1. Entrada (O que você paga AGORA para o banco aceitar o acordo)
+            entrada = c_ent.number_input("Valor da Entrada (Pago Agora)", min_value=0.0)
+            
+            # 2. Como ficou o acordo no banco
+            val_parcela = c_parc_val.number_input("Valor da Parcela Fixa (C/ Juros)", min_value=0.01, help="Valor exato que virá nas próximas faturas")
+            qtd_parcelas = c_qtd.number_input("Quantidade de Parcelas", min_value=1, max_value=48, value=1)
+            
+            # Feedback do Juros
+            total_final = entrada + (val_parcela * qtd_parcelas)
+            juros_total = total_final - valor_divida
+            if valor_divida > 0:
+                st.caption(f"💰 Total Final: R$ {total_final:,.2f} | Juros/Encargos: R$ {juros_total:,.2f}")
+
+            if st.form_submit_button("🚨 Executar Parcelamento"):
+                new_entries = []
+                grupo_id = str(uuid.uuid4())[:8]
+                data_hoje = date.today()
+                
+                # A. REGISTRAR A ENTRADA (Sai do caixa hoje, via Pix/Débito geralmente)
+                if entrada > 0:
+                    new_entries.append({
+                        "Data": data_hoje,
+                        "Tipo": "Despesa Fixa", # Ou Financeira
+                        "Categoria": "Juros/Dívida",
+                        "Descricao": f"Entrada Parc. Fatura {cartao_alvo}",
+                        "Valor_Total": entrada,
+                        "Pagamento": "Pix", # Geralmente entrada de acordo é à vista
+                        "Qtd_Parcelas": 1,
+                        "Cartao_Ref": "",
+                        "ID_Compra": grupo_id
+                    })
+                
+                # B. GERAR AS PARCELAS FUTURAS (Como se fosse uma compra no cartão)
+                # Elas começam a cair na PRÓXIMA fatura
+                for i in range(qtd_parcelas):
+                    # Data base: Hoje + 1 mês * (i+1) para garantir que caia nas próximas
+                    # Nota: A engine de caixa vai jogar isso para a fatura correta automaticamente
+                    data_futura = data_hoje + relativedelta(months=i) 
+                    
+                    new_entries.append({
+                        "Data": data_futura,
+                        "Tipo": "Cartão", # Importante ser Cartão para somar na fatura futura
+                        "Categoria": "Juros/Dívida",
+                        "Descricao": f"Parc. Fatura {cartao_alvo} ({i+1}/{qtd_parcelas})",
+                        "Valor_Total": val_parcela,
+                        "Pagamento": "Crédito",
+                        "Qtd_Parcelas": qtd_parcelas,
+                        "Cartao_Ref": cartao_alvo, # Vincula ao cartão para somar com novos gastos
+                        "ID_Compra": grupo_id
+                    })
+                
+                # Salvar
+                df_trans = pd.concat([df_trans, pd.DataFrame(new_entries)], ignore_index=True)
+                save_full_dataframe(df_trans)
+                st.error(f"Parcelamento Realizado! O valor de R$ {val_parcela:,.2f} foi adicionado às suas faturas futuras do {cartao_alvo}.")
+                st.rerun()
 
 if __name__ == "__main__":
     render_page()
