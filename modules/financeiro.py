@@ -1,301 +1,261 @@
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
-from dateutil.relativedelta import relativedelta
 from modules import conexoes
 
-# --- FUNÇÕES AUXILIARES ---
-def load_data():
-    """
-    Carrega os dados passando as colunas obrigatórias para o módulo conexoes.
-    """
+# --- CONFIGURAÇÕES E UTILITÁRIOS ---
+def load_data_dashboard():
+    """Carregamento robusto e tipagem de dados"""
     # 1. Transações
     cols_t = ["Data", "Tipo", "Categoria", "Descricao", "Valor_Total", "Pagamento", "Qtd_Parcelas", "Recorrente", "Cartao_Ref"]
     df_t = conexoes.load_gsheet("Transacoes", cols_t)
     
     if not df_t.empty:
         df_t["Data"] = pd.to_datetime(df_t["Data"], errors='coerce')
+        # Garante numérico e força positivo para cálculos, o sinal é decidido pelo Tipo
         df_t["Valor_Total"] = pd.to_numeric(df_t["Valor_Total"], errors='coerce').fillna(0.0)
         df_t["Qtd_Parcelas"] = pd.to_numeric(df_t["Qtd_Parcelas"], errors='coerce').fillna(1).astype(int)
+        df_t["Cartao_Ref"] = df_t["Cartao_Ref"].fillna("")
+        df_t["Categoria"] = df_t["Categoria"].fillna("Geral")
     
-    # 2. Cartões
+    # 2. Cartões (Para o Dropdown)
     cols_c = ["ID", "Nome", "Dia_Fechamento"]
     df_c = conexoes.load_gsheet("Cartoes", cols_c)
     
-    # 3. Empréstimos 
-    # Passamos as colunas originais para garantir que o load_gsheet funcione
-    cols_l = ["ID", "Nome", "Valor_Parcela", "Parcelas_Totais", "Parcelas_Pagas", "Status", "Dia_Vencimento"]
-    df_l = conexoes.load_gsheet("Emprestimos", cols_l)
-    
-    if not df_l.empty:
-        # --- MIGRAÇÃO DE SCHEMA (PÓS-LOAD) ---
-        # Garante que as colunas novas de engenharia existam no DataFrame, mesmo que não venham da planilha
-        
-        if "Valor_Parcela_Original" not in df_l.columns:
-            val_antigo = df_l.get("Valor_Parcela", 0.0)
-            df_l["Valor_Parcela_Original"] = pd.to_numeric(val_antigo, errors='coerce').fillna(0.0)
-            
-        if "Parcelas_Restantes" not in df_l.columns:
-            tot = pd.to_numeric(df_l.get("Parcelas_Totais", 0), errors='coerce').fillna(0)
-            pag = pd.to_numeric(df_l.get("Parcelas_Pagas", 0), errors='coerce').fillna(0)
-            df_l["Parcelas_Restantes"] = (tot - pag).astype(int)
-        
-        # Tipagem forçada para evitar erros de cálculo
-        df_l["Valor_Parcela_Original"] = pd.to_numeric(df_l["Valor_Parcela_Original"], errors='coerce').fillna(0.0)
-        df_l["Parcelas_Restantes"] = pd.to_numeric(df_l["Parcelas_Restantes"], errors='coerce').fillna(0).astype(int)
-        
-        if "Status" not in df_l.columns:
-            df_l["Status"] = "Ativo"
+    return df_t, df_c
 
-    return df_t, df_c, df_l
-
-def save_changes(df, tab_name):
-    """Salva os dados formatando a data corretamente para o Google Sheets"""
+def save_full_dataframe(df):
+    """Salva o DataFrame inteiro, garantindo que edições e exclusões sejam persistidas"""
     df_save = df.copy()
     if "Data" in df_save.columns:
         df_save["Data"] = pd.to_datetime(df_save["Data"]).apply(lambda x: x.strftime('%Y-%m-%d') if pd.notnull(x) else "")
-    conexoes.save_gsheet(tab_name, df_save)
+    conexoes.save_gsheet("Transacoes", df_save)
 
-# --- ENGINE FINANCEIRA ---
+# --- ENGINE DO DASHBOARD ---
 def render_page():
-    st.header("💎 Central Financeira - Engenharia")
-    df_trans, df_cards, df_loans = load_data()
+    # CSS para ficar parecido com Excel (Compacto)
+    st.markdown("""
+        <style>
+        .stMetric {background-color: #f0f2f6; padding: 10px; border-radius: 5px;}
+        div[data-testid="stExpander"] div[role="button"] p {font-size: 1.1rem; font-weight: bold;}
+        </style>
+    """, unsafe_allow_html=True)
 
-    tab_input, tab_flow, tab_macro, tab_debt = st.tabs([
-        "📝 Input (C.R.U.E)", 
-        "🔎 Extrato (Mês)", 
-        "🔭 Visão Macro", 
-        "🏦 Empréstimos"
-    ])
+    st.header("📊 Painel de Controle 360º")
+    df_trans, df_cards = load_data_dashboard()
 
-    # ==============================================================================
-    # 1. ABA DE INPUT 
-    # ==============================================================================
-    with tab_input:
-        st.info("Preencha os dados da movimentação.")
+    # --- FILTRO GLOBAL (O "Olho" do Dashboard) ---
+    with st.container():
+        col_mes, col_kpi1, col_kpi2, col_kpi3 = st.columns([1, 1, 1, 1])
+        data_ref = col_mes.date_input("Mês de Competência", date.today())
         
-        with st.form("main_form", clear_on_submit=True):
-            # Linha 1
-            c1, c2, c3 = st.columns(3)
-            dt_input = c1.date_input("Data", date.today())
-            tipo_mov = c2.selectbox("Tipo", ["Despesa Variável", "Despesa Fixa", "Cartão", "Receita", "Investimento", "Amortização"])
-            categ = c3.text_input("Categoria", "Geral")
+        # Filtragem Mestre
+        if not df_trans.empty:
+            df_mes = df_trans[
+                (df_trans['Data'].dt.month == data_ref.month) & 
+                (df_trans['Data'].dt.year == data_ref.year)
+            ].copy()
+            
+            # Cálculos KPI
+            receita = df_mes[df_mes['Tipo'] == 'Receita']['Valor_Total'].sum()
+            
+            # Despesas (Tudo que não é receita e nem investimento, pois investimento é transferência de patrimônio)
+            despesas = df_mes[~df_mes['Tipo'].isin(['Receita', 'Investimento'])]['Valor_Total'].sum()
+            
+            # Investimentos
+            investido = df_mes[df_mes['Tipo'] == 'Investimento']['Valor_Total'].sum()
+            
+            saldo = receita - despesas - investido
 
-            # Linha 2
-            c4, c5 = st.columns([2, 1])
-            desc = c4.text_input("Descrição")
-            valor = c5.number_input("Valor (R$)", min_value=0.01, step=10.0, format="%.2f")
+            col_kpi1.metric("💰 Receitas (Entradas)", f"R$ {receita:,.2f}")
+            col_kpi2.metric("💸 Gastos Totais", f"R$ {despesas:,.2f}", delta=f"-{(despesas/receita)*100:.1f}%" if receita > 0 else "")
+            col_kpi3.metric("Saldo em Caixa", f"R$ {saldo:,.2f}", delta_color="normal" if saldo >= 0 else "inverse")
+        else:
+            st.warning("Sem dados para carregar.")
+            df_mes = pd.DataFrame()
 
+    # --- ABAS ---
+    tab_dash, tab_extrato, tab_lancamento = st.tabs(["📈 Visão Excel (Resumos)", "📝 Extrato & Edição", "➕ Novo Lançamento"])
+
+    # ==============================================================================
+    # 1. VISÃO EXCEL (A REPLICAÇÃO DA SUA PLANILHA)
+    # ==============================================================================
+    with tab_dash:
+        col_esq, col_dir = st.columns([1, 1])
+        
+        # --- BLOCO 1: RESUMO POR CARTÃO (CRUCIAL PARA VOCÊ) ---
+        with col_esq:
+            st.subheader("💳 Faturas dos Cartões")
+            if not df_mes.empty:
+                # Filtra só o que é cartão ou crédito
+                mask_cartao = (df_mes['Tipo'] == 'Cartão') | (df_mes['Pagamento'] == 'Crédito')
+                df_cartoes = df_mes[mask_cartao]
+                
+                if not df_cartoes.empty:
+                    # Agrupa por Nome do Cartão
+                    resumo_cartoes = df_cartoes.groupby("Cartao_Ref")['Valor_Total'].sum().reset_index()
+                    resumo_cartoes = resumo_cartoes.sort_values("Valor_Total", ascending=False)
+                    
+                    st.dataframe(
+                        resumo_cartoes, 
+                        column_config={
+                            "Cartao_Ref": "Cartão",
+                            "Valor_Total": st.column_config.NumberColumn("Fatura Atual", format="R$ %.2f")
+                        },
+                        hide_index=True,
+                        use_container_width=True
+                    )
+                    
+                    # Gráfico de Rosca para ver peso de cada cartão
+                    st.bar_chart(resumo_cartoes.set_index("Cartao_Ref"))
+                else:
+                    st.info("Nenhum gasto em cartão neste mês.")
+            
             st.divider()
             
-            # Linha 3 - Lógica de Pagamento
-            c6, c7, c8 = st.columns(3)
-            
-            # Define opções de pagamento baseado no tipo
-            if tipo_mov == "Receita":
-                pgto_opts = ["Pix", "Transferência", "Dinheiro"]
-                idx_pg = 0
-            elif tipo_mov == "Cartão":
-                pgto_opts = ["Crédito"] # Força Crédito se o tipo é Cartão
-                idx_pg = 0
-            else:
-                pgto_opts = ["Pix", "Débito", "Crédito", "Dinheiro", "Automático"]
-                idx_pg = 0 
-
-            forma_pgto = c6.selectbox("Forma Pagamento", pgto_opts, index=idx_pg)
-            
-            # Lógica de Cartão: SÓ habilita se for Crédito ou Tipo Cartão
-            lista_cartoes = df_cards['Nome'].unique().tolist() if not df_cards.empty else []
-            cartao_ref = ""
-            
-            # Se for Crédito OU selecionou Tipo Cartão, mostra o selectbox
-            if forma_pgto == "Crédito" or tipo_mov == "Cartão":
-                cartao_ref = c7.selectbox("Qual Cartão?", lista_cartoes)
-            else:
-                c7.text_input("Cartão", value="N/A", disabled=True)
-                cartao_ref = ""
-
-            parc = c8.number_input("Parcelas", 1, 60, 1)
-
-            if st.form_submit_button("💾 Salvar Lançamento", type="primary"):
-                novo_reg = {
-                    "Data": dt_input, "Tipo": tipo_mov, "Categoria": categ,
-                    "Descricao": desc, "Valor_Total": valor, "Pagamento": forma_pgto,
-                    "Qtd_Parcelas": parc, "Recorrente": False, "Cartao_Ref": cartao_ref
-                }
-                df_trans = pd.concat([df_trans, pd.DataFrame([novo_reg])], ignore_index=True)
-                save_changes(df_trans, "Transacoes")
-                st.success(f"✅ Lançado: {desc} - R$ {valor}")
-                st.rerun()
-
-    # ==============================================================================
-    # 2. FLUXO MICRO (EDITÁVEL)
-    # ==============================================================================
-    with tab_flow:
-        st.subheader("🕵️ Extrato do Mês")
-        col_filtro, _ = st.columns([1,3])
-        mes_ref = col_filtro.date_input("Filtrar Mês", date.today())
-        
-        if not df_trans.empty:
-            # Filtro de Data
-            mask_mes = (df_trans['Data'].dt.month == mes_ref.month) & (df_trans['Data'].dt.year == mes_ref.year)
-            df_mes = df_trans[mask_mes].copy()
-            
-            # Cálculo de totais
-            entradas = df_mes[df_mes['Tipo'] == 'Receita']['Valor_Total'].sum()
-            saidas = df_mes[df_mes['Tipo'] != 'Receita']['Valor_Total'].sum()
-            
-            k1, k2, k3 = st.columns(3)
-            k1.metric("Entradas", f"R$ {entradas:,.2f}")
-            k2.metric("Saídas", f"R$ {saidas:,.2f}")
-            k3.metric("Saldo Líquido", f"R$ {entradas - saidas:,.2f}")
-
-            st.caption("Edite diretamente na tabela abaixo para corrigir ou excluir lançamentos.")
-            
-            # Data Editor com opção de deletar
-            edited_df = st.data_editor(
-                df_mes,
-                num_rows="dynamic", # Permite adicionar/remover linhas
-                column_config={
-                    "Valor_Total": st.column_config.NumberColumn(format="R$ %.2f"),
-                    "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
-                    "Qtd_Parcelas": st.column_config.NumberColumn(format="%d"),
-                },
-                column_order=["Data", "Descricao", "Valor_Total", "Tipo", "Categoria", "Pagamento", "Cartao_Ref"],
-                use_container_width=True,
-                key="editor_micro_key"
-            )
-
-            if st.button("💾 Salvar Alterações da Tabela"):
-                # Atualiza o DF principal: Remove as linhas antigas desse mês e insere as novas editadas
-                df_trans = df_trans[~mask_mes]
-                df_trans = pd.concat([df_trans, edited_df], ignore_index=True)
+            # --- BLOCO 2: INVESTIMENTOS (SEUS FIIs/DAYTRADE) ---
+            st.subheader("🚀 Investimentos do Mês")
+            if not df_mes.empty:
+                df_inv = df_mes[df_mes['Tipo'] == 'Investimento']
+                total_inv = df_inv['Valor_Total'].sum()
+                st.metric("Total Aportado", f"R$ {total_inv:,.2f}")
                 
-                save_changes(df_trans, "Transacoes")
-                st.success("Tabela atualizada com sucesso!")
-                st.rerun()
+                if not df_inv.empty:
+                    st.dataframe(
+                        df_inv[['Data', 'Descricao', 'Valor_Total']],
+                        hide_index=True,
+                        use_container_width=True
+                    )
+
+        # --- BLOCO 3: METAS E ORÇAMENTO (CATEGORIAS) ---
+        with col_dir:
+            st.subheader("🎯 Orçamento (Metas vs Real)")
+            
+            # Definição das Metas (Hardcoded por enquanto, mas pode vir de banco)
+            metas = {
+                "Custo de Vida": 1500.00,
+                "Lazer": 500.00,
+                "Mercado": 800.00,
+                "Carro": 300.00,
+                "Investimento": 1000.00
+            }
+            
+            if not df_mes.empty:
+                # Agrupa gastos por categoria
+                gastos_cat = df_mes.groupby("Categoria")['Valor_Total'].sum()
+                
+                for categoria, teto in metas.items():
+                    # Busca aproximada (se a categoria contém a palavra chave)
+                    # Ex: "Lazer Fim de Semana" cai em "Lazer"
+                    gasto_atual = 0.0
+                    for cat_real, valor in gastos_cat.items():
+                        if categoria.lower() in cat_real.lower():
+                            gasto_atual += valor
+                    
+                    perc = min(gasto_atual / teto, 1.0)
+                    cor_barra = "green" if perc < 0.75 else "orange" if perc < 0.9 else "red"
+                    
+                    st.write(f"**{categoria}**")
+                    c1, c2 = st.columns([3, 1])
+                    c1.progress(perc)
+                    c2.caption(f"R$ {gasto_atual:.0f} / {teto:.0f}")
 
     # ==============================================================================
-    # 3. VISÃO MACRO
+    # 2. EXTRATO E EDIÇÃO (RESOLVE O PROBLEMA DE EDITAR/EXCLUIR)
     # ==============================================================================
-    with tab_macro:
-        st.subheader("📅 Visão Anual")
-        if not df_trans.empty:
-            df_view = df_trans.copy()
-            df_view['Mes_Ano'] = df_view['Data'].dt.to_period('M')
-            
-            pivot = df_view.pivot_table(
-                index="Categoria", 
-                columns="Mes_Ano", 
-                values="Valor_Total", 
-                aggfunc="sum", 
-                fill_value=0
-            )
-            # Ordenar colunas cronologicamente
-            pivot = pivot.sort_index(axis=1)
-            
-            st.dataframe(pivot.style.format("R$ {:,.2f}"), use_container_width=True)
+    with tab_extrato:
+        st.info("💡 **Editor Mestre:** Altere valores, descrições ou exclua linhas (selecione e aperte Delete) diretamente abaixo. Clique em Salvar para confirmar.")
+        
+        # Mostra TODOS os dados filtrados ou TUDO se quiser procurar histórico
+        usar_filtro = st.checkbox("Filtrar apenas mês selecionado?", value=True)
+        
+        if usar_filtro:
+            df_editor = df_mes.copy()
         else:
-            st.info("Sem dados para projeção.")
-
-    # ==============================================================================
-    # 4. EMPRÉSTIMOS E AMORTIZAÇÃO
-    # ==============================================================================
-    with tab_debt:
-        c_left, c_right = st.columns([1, 2])
+            df_editor = df_trans.copy()
         
-        # --- CADASTRO ---
-        with c_left:
-            st.markdown("### ➕ Novo Contrato")
-            with st.form("add_loan"):
-                nome_div = st.text_input("Nome (Ex: Financiamento)")
-                val_parc = st.number_input("Valor Parcela", min_value=0.0)
-                tot_parc = st.number_input("Total de Parcelas", min_value=1, value=12)
+        # O Editor de Dados
+        edited_df = st.data_editor(
+            df_editor,
+            num_rows="dynamic", # Permite adicionar e deletar linhas
+            column_config={
+                "Valor_Total": st.column_config.NumberColumn(format="R$ %.2f", min_value=0.0),
+                "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
+                "Tipo": st.column_config.SelectboxColumn(options=["Receita", "Despesa Variável", "Despesa Fixa", "Cartão", "Investimento"]),
+                "Pagamento": st.column_config.SelectboxColumn(options=["Pix", "Crédito", "Débito", "Dinheiro"]),
+            },
+            use_container_width=True,
+            height=500,
+            key="master_editor"
+        )
+
+        col_save, _ = st.columns([1, 4])
+        if col_save.button("💾 SALVAR ALTERAÇÕES (Soberano)", type="primary"):
+            if usar_filtro:
+                # Se estava filtrado, precisamos atualizar APENAS as linhas desse mês no DF principal
+                # 1. Remove as antigas do mês
+                indices_antigos = df_trans[
+                    (df_trans['Data'].dt.month == data_ref.month) & 
+                    (df_trans['Data'].dt.year == data_ref.year)
+                ].index
+                df_trans = df_trans.drop(indices_antigos)
                 
-                if st.form_submit_button("Cadastrar"):
-                    new_id = 1 if df_loans.empty else df_loans['ID'].max() + 1 if 'ID' in df_loans else 1
-                    novo_emp = {
-                        "ID": new_id,
-                        "Nome": nome_div,
-                        "Valor_Parcela_Original": val_parc,
-                        "Parcelas_Restantes": tot_parc,
-                        "Status": "Ativo",
-                        # Campos de compatibilidade
-                        "Valor_Parcela": val_parc,
-                        "Parcelas_Totais": tot_parc,
-                        "Parcelas_Pagas": 0
-                    }
-                    df_loans = pd.concat([df_loans, pd.DataFrame([novo_emp])], ignore_index=True)
-                    save_changes(df_loans, "Emprestimos")
-                    st.success("Cadastrado!")
-                    st.rerun()
-
-        # --- GESTÃO ---
-        with c_right:
-            st.markdown("### 📉 Carteira Ativa")
+                # 2. Adiciona as novas (que vieram do editor)
+                df_trans = pd.concat([df_trans, edited_df], ignore_index=True)
+            else:
+                # Se não estava filtrado, o editor contém tudo, então substitui tudo
+                df_trans = edited_df
             
-            # Filtra ativos
-            if not df_loans.empty and "Status" in df_loans.columns:
-                ativos = df_loans[df_loans['Status'] == 'Ativo']
+            save_full_dataframe(df_trans)
+            st.success("Banco de dados atualizado com sucesso! Entradas duplicadas ou erros foram corrigidos.")
+            st.rerun()
+
+    # ==============================================================================
+    # 3. NOVO LANÇAMENTO (SIMPLIFICADO PARA VELOCIDADE)
+    # ==============================================================================
+    with tab_lancamento:
+        with st.form("quick_add", clear_on_submit=True):
+            st.subheader("Novo Registro")
+            l1_c1, l1_c2, l1_c3 = st.columns(3)
+            data_in = l1_c1.date_input("Data", date.today())
+            tipo_in = l1_c2.selectbox("Tipo", ["Despesa Variável", "Cartão", "Receita", "Investimento", "Despesa Fixa"])
+            val_in = l1_c3.number_input("Valor", min_value=0.01)
+
+            l2_c1, l2_c2 = st.columns(2)
+            desc_in = l2_c1.text_input("Descrição")
+            cat_in = l2_c2.text_input("Categoria (Ex: Lazer, Casa, Mercado)", value="Geral")
+            
+            # Lógica Condicional Visual
+            l3_c1, l3_c2 = st.columns(2)
+            
+            lista_cartoes = df_cards['Nome'].unique().tolist() if not df_cards.empty else []
+            
+            if tipo_in == "Cartão":
+                pag_in = "Crédito"
+                cartao_in = l3_c1.selectbox("Fatura de Qual Cartão?", lista_cartoes)
+                parc_in = l3_c2.number_input("Parcelas", 1, 60, 1)
+            elif tipo_in == "Receita":
+                pag_in = "Pix" # Default para receita
+                cartao_in = ""
+                parc_in = 1
+                st.caption("Receitas são contabilizadas via Pix/Transferência por padrão.")
             else:
-                ativos = pd.DataFrame()
+                pag_in = l3_c1.selectbox("Pagamento", ["Pix", "Débito", "Dinheiro"])
+                cartao_in = ""
+                parc_in = 1
 
-            if ativos.empty:
-                st.info("Nenhuma dívida ativa.")
-            else:
-                for idx, row in ativos.iterrows():
-                    val_p = row.get('Valor_Parcela_Original', 0)
-                    restante = row.get('Parcelas_Restantes', 0)
-                    saldo_est = val_p * restante
-
-                    with st.expander(f"💳 {row['Nome']} | Restam: {restante}x", expanded=True):
-                        col_info, col_action = st.columns([1, 1])
-                        
-                        with col_info:
-                            st.metric("Parcela", f"R$ {val_p:,.2f}")
-                            st.metric("Saldo Devedor (Est.)", f"R$ {saldo_est:,.2f}")
-
-                        with col_action:
-                            st.markdown("**Amortizar ou Pagar**")
-                            with st.form(f"pay_{row.get('ID', idx)}"):
-                                v_pago = st.number_input("Valor Pago (R$)", min_value=0.0, step=10.0, key=f"v_{row.get('ID', idx)}")
-                                p_elim = st.number_input("Parcelas Eliminadas", min_value=1, step=1, key=f"p_{row.get('ID', idx)}")
-                                
-                                if st.form_submit_button("🔥 Lançar Pagamento"):
-                                    # 1. Atualiza Dívida
-                                    novo_saldo_p = max(0, restante - p_elim)
-                                    # Busca pelo ID ou Index para garantir update correto
-                                    if 'ID' in df_loans.columns:
-                                        real_idx = df_loans[df_loans['ID'] == row['ID']].index[0]
-                                    else:
-                                        real_idx = idx
-                                        
-                                    df_loans.at[real_idx, 'Parcelas_Restantes'] = novo_saldo_p
-                                    # Atualiza pagas tb para manter consistencia
-                                    pagas_atual = df_loans.at[real_idx, 'Parcelas_Pagas'] if 'Parcelas_Pagas' in df_loans.columns else 0
-                                    df_loans.at[real_idx, 'Parcelas_Pagas'] = pagas_atual + p_elim
-                                    
-                                    if novo_saldo_p == 0:
-                                        df_loans.at[real_idx, 'Status'] = "Quitado"
-                                    
-                                    save_changes(df_loans, "Emprestimos")
-                                    
-                                    # 2. Lança no Fluxo
-                                    rec = {
-                                        "Data": date.today(),
-                                        "Tipo": "Despesa Fixa",
-                                        "Categoria": "Amortização",
-                                        "Descricao": f"Pagto {row['Nome']}",
-                                        "Valor_Total": v_pago,
-                                        "Pagamento": "Pix",
-                                        "Qtd_Parcelas": 1,
-                                        "Cartao_Ref": ""
-                                    }
-                                    df_trans = pd.concat([df_trans, pd.DataFrame([rec])], ignore_index=True)
-                                    save_changes(df_trans, "Transacoes")
-                                    
-                                    st.toast("Pagamento processado!")
-                                    st.rerun()
+            if st.form_submit_button("Lançar"):
+                novo = {
+                    "Data": data_in, "Tipo": tipo_in, "Categoria": cat_in,
+                    "Descricao": desc_in, "Valor_Total": val_in, "Pagamento": pag_in,
+                    "Qtd_Parcelas": parc_in, "Recorrente": False, "Cartao_Ref": cartao_in
+                }
+                # Adiciona e salva imediatamente
+                df_trans = pd.concat([df_trans, pd.DataFrame([novo])], ignore_index=True)
+                save_full_dataframe(df_trans)
+                st.toast(f"Lançado: {desc_in}")
+                # Não precisa de rerun aqui se form clear_on_submit=True, mas ajuda a atualizar o Dashboard
+                st.rerun()
 
 if __name__ == "__main__":
     render_page()
