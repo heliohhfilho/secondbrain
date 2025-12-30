@@ -45,12 +45,22 @@ def render_page():
     st.header("📊 Painel de Engenharia Financeira")
     df_trans, df_cards = load_data_dashboard()
 
+    # --- LÓGICA DE CORREÇÃO DO PERÍODO VIGENTE ---
+    hoje = date.today()
+    
+    # Se hoje é dia 29/12, já virou o ciclo! Pertence à competência de JANEIRO.
+    # Lógica: Se o dia > 5, a competência é o próximo mês.
+    if hoje.day > 5:
+        data_default = hoje + relativedelta(months=1)
+    else:
+        data_default = hoje
+
     # --- FILTRO POR CICLO DE PAGAMENTO ---
     with st.container():
         c_mes, c_resumo = st.columns([1, 3])
         
-        # O usuário escolhe o Mês de Referência (O Mês que ele "Recebe")
-        mes_selecionado = c_mes.date_input("Mês de Competência (Pagamento)", date.today())
+        # O value agora usa a data_default corrigida, não apenas o hoje
+        mes_selecionado = c_mes.date_input("Mês de Competência (Pagamento)", value=data_default)
         
         start_date, end_date = get_intervalo_competencia(mes_selecionado)
         
