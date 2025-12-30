@@ -36,7 +36,7 @@ def save_changes(df, tab_name):
     conexoes.save_gsheet(tab_name, df_save)
 
 # --- APP PRINCIPAL ---
-def main():
+def render_page():
     st.title("🏎️ Controle Financeiro - Engenharia de Capital")
     df_trans, df_cards, df_loans = load_data_safe()
 
