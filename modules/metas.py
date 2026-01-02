@@ -4,34 +4,42 @@ from datetime import date, datetime
 from modules import conexoes
 
 def load_data():
-    # Estrutura SMART:
-    # S (Specific) -> Titulo + Descricao
-    # M (Measurable) -> Meta_Valor + Unidade
-    # A (Achievable) -> (Implícito na definição da meta)
-    # R (Relevant) -> Motivo (Por que isso importa?)
-    # T (Time-bound) -> Deadline (Data exata)
-    
+    # Definição das colunas esperadas
     cols_metas = ["ID", "Titulo", "Descricao_S", "Motivo_R", "Meta_Valor", "Unidade", "Progresso_Atual", "Deadline_T", "Trimestre", "Ano"]
+    
+    # Tenta carregar. Se a função load_gsheet aceitar lista de colunas, ótimo.
+    # Se ela retornar colunas antigas, tratamos abaixo.
     df = conexoes.load_gsheet("Metas", cols_metas)
     
-    if not df.empty:
-        # Tratamento de Tipos
-        df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
-        df["Meta_Valor"] = pd.to_numeric(df["Meta_Valor"], errors='coerce').fillna(0.0)
-        df["Progresso_Atual"] = pd.to_numeric(df["Progresso_Atual"], errors='coerce').fillna(0.0)
-        
-        # Garante que Ano é Texto para filtros
-        df["Ano"] = pd.to_numeric(df["Ano"], errors='coerce').fillna(date.today().year).astype(int).astype(str)
-        
-        # Tratamento de Datas
-        df["Deadline_T"] = pd.to_datetime(df["Deadline_T"], errors='coerce').dt.date
-        
-        # Garante colunas novas se a planilha for antiga
-        if "Descricao_S" not in df.columns: df["Descricao_S"] = ""
-        if "Motivo_R" not in df.columns: df["Motivo_R"] = ""
-    else:
+    # Se vier vazio ou None, cria DataFrame zerado com a estrutura certa
+    if df is None or df.empty:
         df = pd.DataFrame(columns=cols_metas)
+    
+    # --- CORREÇÃO DE MIGRAÇÃO (Evita o KeyError) ---
+    # 1. Se a coluna nova não existe, tenta pegar da antiga 'Progresso_Manual'
+    if "Progresso_Atual" not in df.columns:
+        if "Progresso_Manual" in df.columns:
+            df["Progresso_Atual"] = df["Progresso_Manual"]
+        else:
+            df["Progresso_Atual"] = 0.0
 
+    # 2. Garante que as outras colunas novas existam antes de mexer nelas
+    if "Descricao_S" not in df.columns: df["Descricao_S"] = ""
+    if "Motivo_R" not in df.columns: df["Motivo_R"] = ""
+    if "Deadline_T" not in df.columns: df["Deadline_T"] = None
+    # ------------------------------------------------
+
+    # Agora é seguro converter os tipos
+    df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
+    df["Meta_Valor"] = pd.to_numeric(df["Meta_Valor"], errors='coerce').fillna(0.0)
+    df["Progresso_Atual"] = pd.to_numeric(df["Progresso_Atual"], errors='coerce').fillna(0.0)
+    
+    # Garante que Ano é Texto
+    df["Ano"] = pd.to_numeric(df["Ano"], errors='coerce').fillna(date.today().year).astype(int).astype(str)
+    
+    # Tratamento de Data
+    df["Deadline_T"] = pd.to_datetime(df["Deadline_T"], errors='coerce').dt.date
+    
     return df
 
 def save_data(df):
