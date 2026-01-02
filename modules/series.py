@@ -129,7 +129,7 @@ def render_serie_card(serie, df_log, key_suffix, readonly=False):
                             "Data_Estreia": st.column_config.TextColumn("Data", disabled=True),
                         },
                         hide_index=True,
-                        use_container_width=True,
+                        width=True,
                         key=f"ed_{serie['ID_TMDB']}_{t_select}_{key_suffix}"
                     )
                     

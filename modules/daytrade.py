@@ -127,7 +127,7 @@ def render_page():
                 "Lucro": st.column_config.NumberColumn("Lucro", format="$ %.2f", disabled=True),
                 "Perc_Dia": st.column_config.NumberColumn("%", format="%.2f %%", disabled=True),
             },
-            use_container_width=True, num_rows="dynamic", key="dt_editor"
+            width=True, num_rows="dynamic", key="dt_editor"
         )
         if not edited_df.equals(df_edit):
             edited_df['Lucro'] = edited_df['Banca_Final'] - (edited_df['Banca_Inicial'] + edited_df['Aportes_USD'])
@@ -214,21 +214,21 @@ def render_page():
                 st.markdown("### 📅 Mês 1")
                 st.dataframe(
                     df_m1[["Dia", "Ini_Real", "Lucro_Real", "Fim_Real", "Fim_Meta"]],
-                    use_container_width=True, hide_index=True, column_config=cols_cfg
+                    width=True, hide_index=True, column_config=cols_cfg
                 )
             
             with c_m2:
                 st.markdown("### 📅 Mês 2")
                 st.dataframe(
                     df_m2[["Dia", "Ini_Real", "Lucro_Real", "Fim_Real", "Fim_Meta"]],
-                    use_container_width=True, hide_index=True, column_config=cols_cfg
+                    width=True, hide_index=True, column_config=cols_cfg
                 )
                 
             with c_m3:
                 st.markdown("### 📅 Mês 3")
                 st.dataframe(
                     df_m3[["Dia", "Ini_Real", "Lucro_Real", "Fim_Real", "Fim_Meta"]],
-                    use_container_width=True, hide_index=True, column_config=cols_cfg
+                    width=True, hide_index=True, column_config=cols_cfg
                 )
 
     # --- ABA 3: CALC REVERSA ---

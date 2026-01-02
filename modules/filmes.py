@@ -157,6 +157,6 @@ def render_page():
             
             c2.markdown("#### Gêneros")
             fig = px.pie(df, names='Genero', hole=0.4)
-            c2.plotly_chart(fig, use_container_width=True)
+            c2.plotly_chart(fig, width=True)
             
             st.metric("Total de Filmes Vistos", len(vistos))

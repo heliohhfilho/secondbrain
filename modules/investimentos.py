@@ -109,7 +109,7 @@ def render_page():
         with c_vis:
             if patrimonio_total > 0:
                 fig = px.pie(values=[val_fii, val_cdi], names=['FIIs/Ações', 'Renda Fixa'])
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width=True)
             else:
                 st.info("Sem dados.")
         with c_act:
@@ -126,7 +126,7 @@ def render_page():
             carteira_fiis['Falta ($)'] = meta_por_ativo - carteira_fiis['Total_Atual']
             carteira_fiis['Comprar (Qtd)'] = (carteira_fiis['Falta ($)'] / carteira_fiis['Preco_Unitario'].replace(0, 1)).apply(np.ceil)
             sugestao = carteira_fiis[carteira_fiis['Falta ($)'] > 0].sort_values('Falta ($)', ascending=False)
-            if not sugestao.empty: st.dataframe(sugestao[['Ativo', 'Total_Atual', 'Falta ($)', 'Comprar (Qtd)']], hide_index=True, use_container_width=True)
+            if not sugestao.empty: st.dataframe(sugestao[['Ativo', 'Total_Atual', 'Falta ($)', 'Comprar (Qtd)']], hide_index=True, width=True)
             else: st.success("FIIs balanceados.")
 
     with tab_fire:

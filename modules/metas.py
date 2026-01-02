@@ -144,7 +144,7 @@ def render_page():
     # --- ABA EDITORA ---
     with tab5:
         st.subheader("Base de Dados Completa")
-        edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, hide_index=True)
+        edited_df = st.data_editor(df, num_rows="dynamic", width=True, hide_index=True)
         if st.button("💾 Salvar Tabela"):
             save_data(edited_df)
             st.success("Salvo!")

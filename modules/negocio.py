@@ -116,7 +116,7 @@ def render_page():
     with t1:
         if not df_deals.empty:
             funnel = df_deals.groupby("Estagio")['Valor_Est'].sum().reset_index()
-            st.plotly_chart(px.funnel(funnel, x='Valor_Est', y='Estagio'), use_container_width=True)
+            st.plotly_chart(px.funnel(funnel, x='Valor_Est', y='Estagio'), width=True)
         else:
             st.info("Adicione oportunidades para ver o funil.")
 
@@ -133,7 +133,7 @@ def render_page():
                     "Faturado_Check": st.column_config.CheckboxColumn("Já Faturou?", disabled=True),
                     "Valor_Est": st.column_config.NumberColumn("Valor (R$)", format="%.2f")
                 },
-                use_container_width=True, hide_index=True, key="crm_editor", num_rows="dynamic"
+                width=True, hide_index=True, key="crm_editor", num_rows="dynamic"
             )
             
             # Lógica de Detecção de Mudança e Faturamento
@@ -182,7 +182,7 @@ def render_page():
                 df_clientes,
                 num_rows="dynamic",
                 key="editor_clientes",
-                use_container_width=True,
+                width=True,
                 hide_index=True
             )
             

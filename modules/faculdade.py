@@ -128,7 +128,7 @@ def render_page():
                     "Materia": st.column_config.SelectboxColumn("Matéria", options=cursando, required=True),
                     "Sala": st.column_config.TextColumn("Sala/Bloco"),
                 },
-                use_container_width=True, num_rows="dynamic", key="h_editor"
+                width=True, num_rows="dynamic", key="h_editor"
             )
             
             if not df_hor.equals(edited):
@@ -167,7 +167,7 @@ def render_page():
                 column_config={
                     "Status": st.column_config.SelectboxColumn(options=["Futuro", "Cursando", "Concluído"]),
                 },
-                use_container_width=True, num_rows="dynamic", key="grade_vis"
+                width=True, num_rows="dynamic", key="grade_vis"
             )
             st.caption("Para salvar edições de status, o Streamlit atualiza automaticamente ao interagir.")
 
@@ -250,7 +250,7 @@ def render_page():
                         "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
                         "Nota": st.column_config.NumberColumn(min_value=0.0, max_value=10.0)
                     },
-                    use_container_width=True, hide_index=True
+                    width=True, hide_index=True
                 )
                 if not edited_p.equals(provas_mat):
                     for i, r in edited_p.iterrows():

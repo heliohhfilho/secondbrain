@@ -269,7 +269,7 @@ def render_page():
         
         fig = go.Figure(data=go.Scatterpolar(r=values, theta=categories, fill='toself'))
         fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), showlegend=False, margin=dict(l=20, r=20, t=20, b=20), height=300)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width=True)
 
     with col_evolucao:
         st.subheader("📈 Caixa Anual")

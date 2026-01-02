@@ -86,7 +86,7 @@ def render_album_workspace(projeto, df_m):
             "Obs": st.column_config.TextColumn("Notas")
         },
         hide_index=True,
-        use_container_width=True,
+        width=True,
         num_rows="dynamic",
         key=f"editor_album_{projeto['ID']}"
     )
@@ -196,7 +196,7 @@ def render_writer_workspace(projeto, df_e, df_s):
             "Status_Escrita": st.column_config.SelectboxColumn("Status", options=["Ideia", "Roteiro", "Revisão", "Finalizado"])
         },
         hide_index=True,
-        use_container_width=True,
+        width=True,
         num_rows="dynamic",
         key=f"ed_writ_{projeto['ID']}_{temp_sel}"
     )

@@ -151,7 +151,7 @@ def render_page():
         if not processados.empty:
             st.dataframe(
                 processados[['Data', 'Conteudo', 'Destino', 'Tags']],
-                use_container_width=True,
+                width=True,
                 hide_index=True,
                 column_config={
                     "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY")

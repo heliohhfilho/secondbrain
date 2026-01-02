@@ -166,7 +166,7 @@ def render_page():
             if not df_faturas.empty:
                 resumo = df_faturas.groupby("Cartao_Ref")['Valor_Total'].sum().reset_index()
                 resumo['Vencimento'] = resumo['Cartao_Ref'].map(lambda x: regras_cartoes.get(x, {}).get('vencimento', '-'))
-                st.dataframe(resumo, hide_index=True, use_container_width=True, column_config={"Valor_Total": st.column_config.NumberColumn(format="R$ %.2f")})
+                st.dataframe(resumo, hide_index=True, width=True, column_config={"Valor_Total": st.column_config.NumberColumn(format="R$ %.2f")})
             else:
                 st.info("Nenhuma fatura vence neste mês de caixa.")
 
@@ -175,7 +175,7 @@ def render_page():
             if not df_view.empty:
                 df_cat = df_view[df_view['Tipo'] != 'Receita']
                 res = df_cat.groupby("Categoria")['Valor_Total'].sum().reset_index().sort_values("Valor_Total", ascending=False)
-                st.dataframe(res, hide_index=True, use_container_width=True, column_config={"Valor_Total": st.column_config.NumberColumn(format="R$ %.2f")})
+                st.dataframe(res, hide_index=True, width=True, column_config={"Valor_Total": st.column_config.NumberColumn(format="R$ %.2f")})
 
     # --- ABA 2: LANÇAMENTO (SEM FORMULÁRIO PARA PERMITIR INTERATIVIDADE) ---
     with tab_add:
@@ -260,7 +260,7 @@ def render_page():
                 "Valor_Total": st.column_config.NumberColumn(format="R$ %.2f")
             },
             column_order=["Data", "Data_Caixa", "Descricao", "Valor_Total", "Pagamento", "Cartao_Ref", "Tipo"],
-            use_container_width=True,
+            width=True,
             num_rows="dynamic",
             key="audit_editor"
         )

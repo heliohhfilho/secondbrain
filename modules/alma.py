@@ -134,7 +134,7 @@ def render_page():
             counts = df['Emocao_Dominante'].value_counts().reset_index()
             counts.columns = ['Emoção', 'Qtd']
             fig = px.pie(counts, values='Qtd', names='Emoção', hole=0.4)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width=True)
 
     with t2:
         st.subheader("Lembranças que Aquecem 🔥")

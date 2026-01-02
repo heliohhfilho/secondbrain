@@ -166,4 +166,4 @@ def render_page():
             title="Detalhamento por Critério (Nota x Peso)",
             text='Nota'
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width=True)

@@ -113,7 +113,7 @@ def render_page():
                 "Pontos": st.column_config.ProgressColumn("Milhas Acumuladas", format="%.0f", min_value=0, max_value=max(view_df['Pontos'].max(), 100)),
                 "Gasto Total": st.column_config.NumberColumn(format="R$ %.2f")
             },
-            use_container_width=True, hide_index=True
+            width=True, hide_index=True
         )
         
         # Visualização de Dados
@@ -126,7 +126,7 @@ def render_page():
             if view_df['Pontos'].sum() > 0:
                 import plotly.express as px
                 fig = px.pie(view_df, values='Pontos', names='Nome', hole=0.4)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width=True)
             else:
                 st.info("Lance transações para ver o share.")
 

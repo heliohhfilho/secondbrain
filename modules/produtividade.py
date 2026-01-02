@@ -367,7 +367,7 @@ def render_page():
                     "Total Feito": total_checks
                 })
             
-            st.dataframe(pd.DataFrame(data_perf).set_index("Hábito"), use_container_width=True)
+            st.dataframe(pd.DataFrame(data_perf).set_index("Hábito"), width=True)
             
         else:
             st.warning("Comece a marcar seus hábitos para gerar gráficos!")
