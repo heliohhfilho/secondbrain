@@ -156,7 +156,7 @@ def render_page():
     
     massa_magra = current['Peso_kg'] * (1 - (current['Gordura_Perc']/100))
     c3.metric("Hidratação", f"{current['Agua_L']}L", f"Meta: {current['Peso_kg']*0.035:.1f}L")
-    c4.metric("Peso", f"{current['Peso_kg']} kg", f"{massa_magra:.1f}kg Magra")
+    c4.metric("Peso", f"{current['Peso_kg']:.2f} kg", f"{massa_magra:.1f}kg Magra")
     c5.metric("Basal (TMB)", f"{tmb} kcal")
 
     st.divider()
