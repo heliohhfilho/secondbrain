@@ -168,7 +168,7 @@ def render_page():
         fig = go.Figure()
         fig.add_trace(go.Bar(x=df_chart['Data_dt'], y=df_chart['Calorias_Ingeridas'], name='Ingerido', marker_color='#3498db'))
         fig.add_trace(go.Scatter(x=df_chart['Data_dt'], y=df_chart['Gasto_Calc'], name='Gasto Total', line=dict(color='red', width=3, dash='dot')))
-        st.plotly_chart(fig, width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with t2:
         df_chart['Kg_Gordura'] = df_chart['Peso_kg'] * (df_chart['Gordura_Perc']/100)
@@ -176,7 +176,7 @@ def render_page():
         fig2 = go.Figure()
         fig2.add_trace(go.Scatter(x=df_chart['Data_dt'], y=df_chart['Kg_Magra'], stackgroup='one', name='Massa Magra', marker_color='#2ecc71'))
         fig2.add_trace(go.Scatter(x=df_chart['Data_dt'], y=df_chart['Kg_Gordura'], stackgroup='one', name='Gordura', marker_color='#e74c3c'))
-        st.plotly_chart(fig2, width=True)
+        st.plotly_chart(fig2, width='stretch')
 
     with t3:
-        st.dataframe(df.sort_values("Data_dt", ascending=False), width=True)
+        st.dataframe(df.sort_values("Data_dt", ascending=False), width='stretch')
