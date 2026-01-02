@@ -65,26 +65,29 @@ def get_trimestre_dates(q, ano):
     return date(ano, 1, 1), date(ano, 12, 31)
 
 def render_page():
-    st.header("🎯 OKRs Trimestrais")
-    st.caption("Foco curto. Resultados rápidos.")
+    st.header("🎯 OKRs & Metas")
     
     df, dados_externos = load_data()
     
-    # --- SIDEBAR: NOVA META ---
+    # --- SIDEBAR ---
     with st.sidebar:
-        st.subheader("➕ Definir Objetivo")
+        st.subheader("⚙️ Configuração")
+        # 1. SOLUÇÃO DO PROBLEMA: Seletor de Ano para Visualização
+        ano_view = st.number_input("Visualizar Ano:", 2024, 2030, date.today().year)
+        st.divider()
+
+        st.subheader("➕ Nova Meta")
         tipos_disponiveis = ["Manual", "💰 Investimento Total", "⚖️ Peso (Emagrecer)", "🧬 Gordura % (Baixar)"]
         
         with st.form("nova_meta"):
-            m_titulo = st.text_input("Objetivo (Ex: Perder 5kg)")
-            m_tipo = st.selectbox("Tipo de Dado", tipos_disponiveis)
-            
+            m_titulo = st.text_input("Objetivo")
+            m_tipo = st.selectbox("Tipo", tipos_disponiveis)
             c1, c2 = st.columns(2)
-            m_trim = c1.selectbox("Trimestre", ["Q1", "Q2", "Q3", "Q4"], index=0) # Index 0 = Q1
-            m_ano = c2.number_input("Ano", 2024, 2030, date.today().year)
+            m_trim = c1.selectbox("Trimestre", ["Q1", "Q2", "Q3", "Q4"])
+            m_ano = c2.number_input("Ano Meta", 2024, 2030, date.today().year) # Default ano atual
             
             c3, c4 = st.columns(2)
-            m_valor = c3.number_input("Meta Alvo", 0.0, 1000000.0, 10.0)
+            m_valor = c3.number_input("Valor Alvo", 0.0, 1000000.0, 10.0)
             m_unidade = c4.text_input("Unidade", "kg")
             
             if st.form_submit_button("Criar Sprint"):
@@ -96,75 +99,81 @@ def render_page():
                 }
                 df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
                 save_data(df)
-                st.success("Sprint criado!")
+                st.success("Criado!")
                 st.rerun()
 
-    # --- DASHBOARD POR TRIMESTRE ---
     if df.empty:
-        st.info("Defina seus objetivos trimestrais na barra lateral.")
-        return
+        st.info("Nenhuma meta encontrada. Crie a primeira na barra lateral.")
+        # Cria dataframe vazio estruturado para evitar erro no editor
+        df = pd.DataFrame(columns=["ID", "Titulo", "Tipo_Vinculo", "Meta_Valor", "Unidade", "Trimestre", "Ano", "Progresso_Manual"])
 
-    # Abas por Trimestre
-    tab1, tab2, tab3, tab4 = st.tabs(["Q1 (Jan-Mar)", "Q2 (Abr-Jun)", "Q3 (Jul-Set)", "Q4 (Out-Dez)"])
+    # --- ABAS ---
+    # 2. SOLUÇÃO DO PROBLEMA: Aba extra "Gerenciar"
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Q1", "Q2", "Q3", "Q4", "⚙️ Gerenciar Tudo"])
     
     tabs_map = {"Q1": tab1, "Q2": tab2, "Q3": tab3, "Q4": tab4}
     
-    # Determina Trimestre Atual para destacar
-    mes_atual = date.today().month
-    q_atual = "Q1" if mes_atual <= 3 else "Q2" if mes_atual <= 6 else "Q3" if mes_atual <= 9 else "Q4"
-
+    # Lógica de Trimestres
     for q_name, tab_obj in tabs_map.items():
         with tab_obj:
-            # Filtra metas deste trimestre e ano atual
-            metas_q = df[(df['Trimestre'] == q_name) & (df['Ano'] == str(date.today().year))]
+            # Filtra pelo ANO SELECIONADO NA SIDEBAR (ano_view), não mais date.today()
+            metas_q = df[(df['Trimestre'] == q_name) & (df['Ano'] == str(ano_view))]
             
             if metas_q.empty:
-                st.caption(f"Sem metas definidas para o {q_name}.")
-                if q_name == q_atual: st.info("⚠️ Este é o trimestre atual! Defina o foco agora.")
+                st.caption(f"Sem metas para {q_name}/{ano_view}.")
             else:
-                # Barra de Tempo do Trimestre (Pressão Temporal)
-                if q_name == q_atual:
-                    start_q, end_q = get_trimestre_dates(q_name, date.today().year)
+                # Barra de tempo apenas se for o ano atual
+                if ano_view == date.today().year:
+                    start_q, end_q = get_trimestre_dates(q_name, ano_view)
                     total_days = (end_q - start_q).days
                     passed_days = (date.today() - start_q).days
                     perc_time = max(0.0, min(1.0, passed_days / total_days))
-                    
-                    st.markdown(f"**Tempo do Trimestre:** {int(perc_time*100)}% esgotado")
-                    st.progress(perc_time)
-                    if perc_time > 0.8: st.warning("🔥 Reta final do trimestre!")
+                    st.progress(perc_time, text=f"Tempo decorrido: {int(perc_time*100)}%")
                     st.divider()
 
-                # Cards de Metas
+                # Cards
                 col1, col2 = st.columns(2)
                 for idx, row in metas_q.iterrows():
                     target_col = col1 if idx % 2 == 0 else col2
                     with target_col:
                         with st.container(border=True):
-                            c_tit, c_act = st.columns([5, 1])
-                            c_tit.markdown(f"**{row['Titulo']}**")
-                            if c_act.button("🗑️", key=f"del_{row['ID']}"):
-                                df = df[df['ID'] != row['ID']]
-                                save_data(df); st.rerun()
+                            st.markdown(f"**{row['Titulo']}**")
                             
                             atual, perc = calcular_status(row['Tipo_Vinculo'], row['Meta_Valor'], row['Progresso_Manual'], dados_externos)
                             
-                            # Logica de Perda de Peso (Invertida)
+                            # Lógica Visual
                             is_weight = row['Tipo_Vinculo'] in ["⚖️ Peso (Emagrecer)", "🧬 Gordura % (Baixar)"]
                             
                             if is_weight:
                                 delta = atual - row['Meta_Valor']
-                                if delta <= 0:
-                                    st.success(f"✅ BATIDA! {atual} {row['Unidade']}")
-                                else:
-                                    st.metric("Falta Perder", f"{delta:.1f} {row['Unidade']}", f"Atual: {atual}")
-                                    st.caption(f"Alvo: {row['Meta_Valor']}")
+                                if delta <= 0: st.success(f"✅ {atual} {row['Unidade']}")
+                                else: st.metric("Falta", f"{delta:.1f}", f"Atual: {atual}")
                             else:
                                 st.metric("Progresso", f"{atual:,.0f} / {row['Meta_Valor']:,.0f}", f"{perc:.1f}%")
                                 st.progress(perc/100)
                             
-                            # Input Manual Rápido
                             if row['Tipo_Vinculo'] == "Manual":
                                 new_val = st.number_input("Atualizar", value=float(row['Progresso_Manual']), key=f"up_{row['ID']}")
                                 if new_val != row['Progresso_Manual']:
-                                    df.at[idx, 'Progresso_Manual'] = new_val
+                                    df.loc[df['ID'] == row['ID'], 'Progresso_Manual'] = new_val
                                     save_data(df); st.rerun()
+
+    # --- ABA DE GERENCIAMENTO TOTAL ---
+    with tab5:
+        st.subheader("Base de Dados Completa")
+        st.caption("Edite valores diretamente na tabela. Selecione linhas e aperte DEL no teclado para apagar.")
+        
+        # Editor nativo do Streamlit (permite adicionar, editar e excluir)
+        edited_df = st.data_editor(
+            df, 
+            num_rows="dynamic", 
+            use_container_width=True,
+            key="editor_geral",
+            hide_index=True
+        )
+
+        # Botão para salvar alterações feitas na tabela
+        if st.button("💾 Salvar Alterações na Tabela"):
+            save_data(edited_df)
+            st.success("Banco de dados atualizado!")
+            st.rerun()
