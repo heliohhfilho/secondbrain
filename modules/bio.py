@@ -12,30 +12,54 @@ st.set_page_config(page_title="Bio-Engineer Hub", layout="wide", page_icon="🧬
 
 # --- 1. CARREGAMENTO E SANEAMENTO DE DADOS ---
 def load_data():
-    # Adicionei novas colunas para suportar Macros e Metas Dinâmicas
-    cols = [
+    # 1. Definição do Schema Completo (Todas as colunas que seu App espera)
+    expected_cols = [
         "Data", "Peso_kg", "Altura_m", "Idade", "Gordura_Perc", 
-        "Pescoco_cm", "Cintura_cm", "Quadril_cm",  # <--- Novo
+        "Pescoco_cm", "Cintura_cm", "Quadril_cm",  # <--- O Quadril está aqui
         "Biceps_cm", "Peito_cm", "Coxa_cm",
         "Sono_hrs", "Humor_0_10", "Treino_Tipo", "Obs",
         "Agua_L", "Calorias_Ingeridas", "Objetivo_Tipo",
-        "Meta_Peso_kg", "Meta_BF_perc",  # <--- Novos Inputs de Meta
-        "Prot_g", "Carb_g", "Gord_g"     # <--- Novos Inputs de Macros
+        "Meta_Peso_kg", "Meta_BF_perc", 
+        "Prot_g", "Carb_g", "Gord_g"
     ]
     
-    df = conexoes.load_gsheet("Bio", cols)
-    
+    # 2. Carrega o que tem lá (mesmo que falte colunas)
+    # Nota: Se load_gsheet aceitar apenas 1 argumento, remova o 'expected_cols' da chamada.
+    # Estou assumindo que ele retorna um DF com o que encontrar.
+    try:
+        df = conexoes.load_gsheet("Bio") 
+    except:
+        df = pd.DataFrame(columns=expected_cols) # Fallback se falhar tudo
+
+    # 3. AUTO-REPAIR: Cria as colunas que faltam na planilha antiga
     if not df.empty:
-        # Cast seguro de tipos float
-        cols_float = ["Peso_kg", "Altura_m", "Gordura_Perc", "Pescoco_cm", "Cintura_cm", "Quadril_cm",
-                      "Biceps_cm", "Peito_cm", "Coxa_cm", "Sono_hrs", "Agua_L", 
-                      "Meta_Peso_kg", "Meta_BF_perc", "Prot_g", "Carb_g", "Gord_g"]
-        
-        for col in cols_float:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
-        
+        for col in expected_cols:
+            if col not in df.columns:
+                # Se for coluna de texto/data
+                if col in ["Data", "Obs", "Treino_Tipo", "Objetivo_Tipo"]:
+                    df[col] = ""
+                # Se for numérico
+                else:
+                    df[col] = 0.0
+    else:
+        # Se a planilha estiver vazia, cria o DF zerado com as colunas certas
+        df = pd.DataFrame(columns=expected_cols)
+
+    # 4. SANEAMENTO DE DADOS (Cast de Tipos)
+    cols_float = ["Peso_kg", "Altura_m", "Gordura_Perc", "Pescoco_cm", "Cintura_cm", "Quadril_cm",
+                  "Biceps_cm", "Peito_cm", "Coxa_cm", "Sono_hrs", "Agua_L", 
+                  "Meta_Peso_kg", "Meta_BF_perc", "Prot_g", "Carb_g", "Gord_g"]
+    
+    for col in cols_float:
+        # Garante que a coluna existe antes de converter (segurança dupla)
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+    
+    # Casts específicos
+    if "Idade" in df.columns:
         df["Idade"] = pd.to_numeric(df["Idade"], errors='coerce').fillna(26).astype(int)
+    
+    if "Calorias_Ingeridas" in df.columns:
         df["Calorias_Ingeridas"] = pd.to_numeric(df["Calorias_Ingeridas"], errors='coerce').fillna(0).astype(int)
         
     return df
