@@ -170,7 +170,7 @@ def render_page():
     # 3. ENGENHARIA DO CORPO
     st.subheader("🧬 Engenharia do Corpo")
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Peso", f"{peso_atual} kg", str_bio_delta, delta_color="inverse")
+    k1.metric("Peso", f"{peso_atual:.2f} kg", str_bio_delta, delta_color="inverse")
     k2.metric("BF %", f"{bf_atual:.1f}%", f"{15.0 - bf_atual:+.1f}% (Meta 15%)")
     k3.metric("Sono", f"{sono_atual}h")
     
