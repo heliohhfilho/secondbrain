@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from modules import conexoes
 
 def load_data():
-    # 1. Carrega Metas Principais (Com Trimestre)
+    # 1. Carrega Metas Principais
     cols_metas = ["ID", "Titulo", "Tipo_Vinculo", "Meta_Valor", "Unidade", "Trimestre", "Ano", "Progresso_Manual"]
     df = conexoes.load_gsheet("Metas", cols_metas)
     
@@ -12,21 +12,25 @@ def load_data():
         df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
         df["Meta_Valor"] = pd.to_numeric(df["Meta_Valor"], errors='coerce').fillna(0.0)
         df["Progresso_Manual"] = pd.to_numeric(df["Progresso_Manual"], errors='coerce').fillna(0.0)
-        # Default para Q1/2025 se vier vazio
-        if "Trimestre" not in df.columns: df["Trimestre"] = "Q1"
-        if "Ano" not in df.columns: df["Ano"] = str(date.today().year)
+        
+        # --- CORREÇÃO DO BUG AQUI ---
+        # Converte tudo para número primeiro (para tirar sujeira), vira inteiro, depois vira TEXTO
+        df["Ano"] = pd.to_numeric(df["Ano"], errors='coerce').fillna(date.today().year).astype(int).astype(str)
+        # ----------------------------
 
-    # 2. Busca Dados Externos (OKRs Automáticos)
+        if "Trimestre" not in df.columns: df["Trimestre"] = "Q1"
+    else:
+        # Cria dataframe vazio com colunas certas se a planilha estiver zerada
+        df = pd.DataFrame(columns=cols_metas)
+
+    # 2. Busca Dados Externos (O resto continua igual)
     dados_externos = {}
-    
-    # Investimentos
     df_inv = conexoes.load_gsheet("Investimentos", ["Qtd", "Preco_Unitario"])
     if not df_inv.empty:
         df_inv["Qtd"] = pd.to_numeric(df_inv["Qtd"], errors='coerce').fillna(0)
         df_inv["Preco_Unitario"] = pd.to_numeric(df_inv["Preco_Unitario"], errors='coerce').fillna(0)
         dados_externos['Investimento Total'] = (df_inv['Qtd'] * df_inv['Preco_Unitario']).sum()
     
-    # Bio
     df_b = conexoes.load_gsheet("Bio", ["Data", "Peso_kg", "Gordura_Perc"])
     if not df_b.empty:
         df_b['Data'] = pd.to_datetime(df_b['Data'], errors='coerce')
