@@ -32,20 +32,27 @@ def load_data():
     else:
         df_h_conf["Ativo"] = df_h_conf["Ativo"].astype(str).str.upper() == "TRUE"
 
-    # 4. Log de Hábitos (Checks)
+    # 4. Log de Hábitos (Checks) - Refatorado para garantir estrutura
+    cols_esperadas = ["Data", "Habito", "Status"]
     try:
-        df_h_check = conexoes.load_gsheet("Habitos_Log", ["Data", "Habito", "Status"])
+        df_h_check = conexoes.load_gsheet("Habitos_Log", cols_esperadas)
+        
+        # Se o retorno for None ou não for um DataFrame, força criação
+        if not isinstance(df_h_check, pd.DataFrame):
+            df_h_check = pd.DataFrame(columns=cols_esperadas)
+            
     except Exception:
-        # Se a aba não existir ou colunas falharem, cria DF vazio com as colunas corretas
-        df_h_check = pd.DataFrame(columns=["Data", "Habito", "Status"])
+        df_h_check = pd.DataFrame(columns=cols_esperadas)
+
+    # Garantia extra: Se o DataFrame existe mas as colunas sumiram (planilha limpa)
+    for col in cols_esperadas:
+        if col not in df_h_check.columns:
+            df_h_check[col] = None
 
     if not df_h_check.empty:
-        # Verifica se a coluna existe antes de fazer o dropna
-        if 'Habito' in df_h_check.columns:
-            df_h_check = df_h_check.dropna(subset=['Habito'])
-        
-        if 'Status' in df_h_check.columns:
-            df_h_check["Status"] = df_h_check["Status"].astype(str).str.upper() == "TRUE"
+        df_h_check = df_h_check.dropna(subset=['Habito'])
+        # Conversão booleana segura
+        df_h_check["Status"] = df_h_check["Status"].astype(str).str.upper() == "TRUE"
 
     return df_t, df_log, df_h_conf, df_h_check
 
