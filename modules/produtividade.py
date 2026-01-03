@@ -33,10 +33,19 @@ def load_data():
         df_h_conf["Ativo"] = df_h_conf["Ativo"].astype(str).str.upper() == "TRUE"
 
     # 4. Log de Hábitos (Checks)
-    df_h_check = conexoes.load_gsheet("Habitos_Log", ["Data", "Habito", "Status"])
+    try:
+        df_h_check = conexoes.load_gsheet("Habitos_Log", ["Data", "Habito", "Status"])
+    except Exception:
+        # Se a aba não existir ou colunas falharem, cria DF vazio com as colunas corretas
+        df_h_check = pd.DataFrame(columns=["Data", "Habito", "Status"])
+
     if not df_h_check.empty:
-        df_h_check = df_h_check.dropna(subset=['Habito']) # Limpeza técnica
-        df_h_check["Status"] = df_h_check["Status"].astype(str).str.upper() == "TRUE"
+        # Verifica se a coluna existe antes de fazer o dropna
+        if 'Habito' in df_h_check.columns:
+            df_h_check = df_h_check.dropna(subset=['Habito'])
+        
+        if 'Status' in df_h_check.columns:
+            df_h_check["Status"] = df_h_check["Status"].astype(str).str.upper() == "TRUE"
 
     return df_t, df_log, df_h_conf, df_h_check
 
