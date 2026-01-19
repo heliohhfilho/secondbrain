@@ -180,7 +180,7 @@ def render_page():
                 if nm:
                     n = {"Materia": nm, "Semestre_Ref": "-", "Status": stt, "Pre_Requisito": req, "Professor": "-"}
                     df_mat = pd.concat([df_mat, pd.DataFrame([n])], ignore_index=True)
-                    save_data(df_mat, df_m)
+                    save_data(df_mat, df_mat)
                     st.success("Cadastrado!")
                     st.rerun()
 
@@ -197,7 +197,7 @@ def render_page():
                     
                     # Cascade Delete
                     df_mat = df_mat.drop(idx)
-                    save_data(df_mat, df_m)
+                    save_data(df_mat, df_mat)
                     
                     df_aval = df_aval[df_aval['Materia'] != target]
                     save_data(df_aval, df_a)
