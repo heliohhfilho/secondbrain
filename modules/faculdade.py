@@ -132,7 +132,7 @@ def render_page():
             )
             
             if not df_hor.equals(edited):
-                save_csv(edited, PATH_HORARIOS)
+                save_csv(edited, df_h)
                 st.rerun()
 
         # Próximas Provas (Só faz sentido mostrar se não estiver de férias ou se tiver algo agendado)
@@ -180,7 +180,7 @@ def render_page():
                 if nm:
                     n = {"Materia": nm, "Semestre_Ref": "-", "Status": stt, "Pre_Requisito": req, "Professor": "-"}
                     df_mat = pd.concat([df_mat, pd.DataFrame([n])], ignore_index=True)
-                    save_csv(df_mat, PATH_MATERIAS)
+                    save_data(df_mat, df_m)
                     st.success("Cadastrado!")
                     st.rerun()
 
@@ -197,16 +197,16 @@ def render_page():
                     
                     # Cascade Delete
                     df_mat = df_mat.drop(idx)
-                    save_csv(df_mat, PATH_MATERIAS)
+                    save_data(df_mat, df_m)
                     
                     df_aval = df_aval[df_aval['Materia'] != target]
-                    save_csv(df_aval, PATH_AVALIACOES)
+                    save_data(df_aval, df_a)
                     
                     df_top = df_top[df_top['Materia'] != target]
-                    save_csv(df_top, PATH_TOPICOS)
+                    save_data(df_top, df_t)
                     
                     df_hor = df_hor[df_hor['Materia'] != target]
-                    save_csv(df_hor, PATH_HORARIOS)
+                    save_data(df_hor, df_h)
                     
                     st.toast(f"Matéria '{target}' e dados vinculados apagados.")
                     st.rerun()
@@ -237,7 +237,7 @@ def render_page():
                 if st.button("Agendar"):
                     n = {"Materia": materia_atual, "Nome": pn, "Data": pd_, "Peso": pp, "Nota": 0.0, "Concluido": False}
                     df_aval = pd.concat([df_aval, pd.DataFrame([n])], ignore_index=True)
-                    save_csv(df_aval, PATH_AVALIACOES)
+                    save_data(df_aval, df_a)
                     st.rerun()
             
             provas_mat = df_aval[df_aval['Materia'] == materia_atual].copy()
@@ -250,7 +250,7 @@ def render_page():
                         "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
                         "Nota": st.column_config.NumberColumn(min_value=0.0, max_value=10.0)
                     },
-                    width=True, hide_index=True
+                    width='Streach', hide_index=True
                 )
                 if not edited_p.equals(provas_mat):
                     for i, r in edited_p.iterrows():
@@ -258,7 +258,7 @@ def render_page():
                         if mask.any():
                             df_aval.loc[mask, 'Nota'] = r['Nota']
                             df_aval.loc[mask, 'Concluido'] = r['Concluido']
-                    save_csv(df_aval, PATH_AVALIACOES)
+                    save_data(df_aval, df_a)
                     st.rerun()
         
         with t_cont:
@@ -267,7 +267,7 @@ def render_page():
             if c2.button("Add"):
                 t = {"Materia": materia_atual, "Topico": nt, "Prova_Ref": "Geral", "Teoria_Ok": False, "Exercicio_Ok": False, "Revisao_Ok": False}
                 df_top = pd.concat([df_top, pd.DataFrame([t])], ignore_index=True)
-                save_csv(df_top, PATH_TOPICOS)
+                save_data(df_top, df_t)
                 st.rerun()
             
             tops = df_top[df_top['Materia'] == materia_atual]
@@ -284,12 +284,12 @@ def render_page():
                         df_top.at[idx, 'Teoria_Ok'] = t_ok
                         df_top.at[idx, 'Exercicio_Ok'] = e_ok
                         df_top.at[idx, 'Revisao_Ok'] = r_ok
-                        save_csv(df_top, PATH_TOPICOS)
+                        save_data(df_top, df_t)
                         st.rerun()
                     
                     if c_del.button("x", key=f"d{idx}"):
                         df_top = df_top.drop(idx)
-                        save_csv(df_top, PATH_TOPICOS)
+                        save_data(df_top, df_t)
                         st.rerun()
 
         with t_resumo:
