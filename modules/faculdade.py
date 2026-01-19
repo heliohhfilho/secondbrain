@@ -128,7 +128,7 @@ def render_page():
                     "Materia": st.column_config.SelectboxColumn("Matéria", options=cursando, required=True),
                     "Sala": st.column_config.TextColumn("Sala/Bloco"),
                 },
-                width=True, num_rows="dynamic", key="h_editor"
+                width='stretch', num_rows="dynamic", key="h_editor"
             )
             
             if not df_hor.equals(edited):
@@ -167,7 +167,7 @@ def render_page():
                 column_config={
                     "Status": st.column_config.SelectboxColumn(options=["Futuro", "Cursando", "Concluído"]),
                 },
-                width=True, num_rows="dynamic", key="grade_vis"
+                width='stretch', num_rows="dynamic", key="grade_vis"
             )
             st.caption("Para salvar edições de status, o Streamlit atualiza automaticamente ao interagir.")
 
