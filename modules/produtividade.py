@@ -5,6 +5,7 @@ import os
 import plotly.express as px
 
 from modules import conexoes
+@st.cache_data(ttl=600)
 def load_data():
     # 1. Tarefas
     cols_t = ["Tarefa", "Data", "Concluido", "Prioridade"]
@@ -141,11 +142,12 @@ def render_page():
     df_t, df_log, df_h_conf, df_h_check = load_data()
     
     # --- ABAS ---
-    tab_habitos, tab_deep, tab_tarefas, tab_analytics = st.tabs([
+    tab_habitos, tab_deep, tab_tarefas, tab_analytics, tab_admin = st.tabs([
         "✅ Rotina & Hábitos", 
         "⚡ Sessões de Foco", 
         "📝 To-Do List", 
-        "📊 BI Pessoal"
+        "📊 BI Pessoal",
+        "🛠️ Gerenciar Dados"
     ])
 
     # ==============================================================================
@@ -387,3 +389,57 @@ def render_page():
             
         else:
             st.warning("Comece a marcar seus hábitos para gerar gráficos!")
+
+    # ==============================================================================
+    # NOVA ABA: GERENCIAR DADOS (O que você pediu)
+    # ==============================================================================
+    with tab_admin:
+        st.subheader("⚙️ Editor de Banco de Dados")
+        st.caption("Use esta seção para corrigir registros passados, deletar erros ou adicionar maratonas esquecidas.")
+
+        # --- SELETOR DE TABELA ---
+        tabela_alvo = st.radio("Selecione a base para editar:", 
+                              ["Log de Produtividade (Deep Work)", "Tarefas", "Log de Hábitos"], 
+                              horizontal=True)
+
+        if tabela_alvo == "Log de Produtividade (Deep Work)":
+            df_atual = df_log.copy()
+            aba_nome = "Log_Produtividade"
+        elif tabela_alvo == "Tarefas":
+            df_atual = df_t.copy()
+            aba_nome = "Tarefas"
+        else:
+            df_atual = df_h_check.copy()
+            aba_nome = "Habitos_Log"
+
+        st.info(f"Editando: **{aba_nome}**")
+
+        if "Data" in df_atual.columns and not df_atual.empty:
+            df_atual["Data"] = pd.to_datetime(df_atual["Data"], errors='coerce').dt.date
+        
+        # O data_editor permite Adicionar (num_rows="dynamic"), Editar e Deletar
+        df_editado = st.data_editor(
+            df_atual, 
+            num_rows="dynamic", 
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Data": st.column_config.DateColumn("Data", format="YYYY-MM-DD", required=True),
+                "Valor": st.column_config.NumberColumn("Valor", min_value=0),
+                "Status": st.column_config.CheckboxColumn("Status"),
+                "Concluido": st.column_config.CheckboxColumn("Concluido")
+            }
+        )
+
+        if st.button(f"💾 Sincronizar Alterações em {aba_nome}"):
+            try:
+                # Saneamento antes de salvar
+                if "Data" in df_editado.columns:
+                    df_editado["Data"] = df_editado["Data"].astype(str)
+                
+                # Salvando na nuvem usando sua função original
+                save_data(df_editado, aba_nome)
+                st.success("Dados atualizados com sucesso na nuvem!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao salvar: {e}")

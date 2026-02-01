@@ -140,10 +140,20 @@ def render_page():
         last_global = df.sort_values("Data").iloc[-1] if not df.empty else None
         
         def get_val(col, default, is_static=True, row=None):
-            if row is not None: return row[col] # Se existe registro hoje
+            if row is not None:
+                return row[col]
+            
             if is_static and last_global is not None and col in last_global:
                 val = last_global[col]
-                return float(val) if val != "" else default
+
+                if isinstance(default, str):
+                    return str(val) if val != "" else default
+
+                try:
+                    return float(val) if val != "" else default
+                except (ValueError, TypeError):
+                    return default
+                
             return default
 
         # Seleção de Data
