@@ -2,7 +2,10 @@ import streamlit as st
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from requests.exceptions import ConnectionError, ReadTimeout
 import time
+
+PLANILHA_NOME = "Life_OS_Database"
 
 # Cache para não reconectar toda hora
 @st.cache_resource
@@ -17,41 +20,54 @@ def conectar_gsheets():
     client = gspread.authorize(creds)
     return client
 
-def load_gsheet(nome_aba, colunas_padrao):
+# Em modules/conexoes.py
 
-    time.sleep(2)
+def load_gsheet(aba, cols_esperadas):
     """
-    Carrega uma aba específica da planilha. Se não existir, cria.
-    Retorna um DataFrame Pandas.
+    Carrega dados da aba com tratamento de erro de conexão e retentativas.
     """
+
     client = conectar_gsheets()
+    max_retries = 3
+    wait_seconds = 2
     
-    # Nome da sua planilha no Google (Tem que ser EXATO)
-    PLANILHA_NOME = "Life_OS_Database" 
-    
-    try:
-        sh = client.open(PLANILHA_NOME)
-    except gspread.SpreadsheetNotFound:
-        st.error(f"Não achei a planilha '{PLANILHA_NOME}'. Crie ela no Google e compartilhe com o robô!")
-        return pd.DataFrame(columns=colunas_padrao)
+    for attempt in range(max_retries):
+        try:
+            # 1. Tenta abrir a planilha (Onde seu erro estava acontecendo)
+            sh = client.open(PLANILHA_NOME)
+            
+            # 2. Tenta selecionar a aba
+            worksheet = sh.worksheet(aba)
+            
+            # 3. Pega os dados
+            data = worksheet.get_all_records()
+            
+            # 4. Converte para DataFrame
+            df = pd.DataFrame(data)
+            
+            # 5. Garante que as colunas existam mesmo se a planilha estiver vazia
+            if df.empty:
+                return pd.DataFrame(columns=cols_esperadas)
+            
+            # Filtra apenas colunas que queremos (se existirem)
+            cols_existentes = [c for c in cols_esperadas if c in df.columns]
+            return df[cols_existentes]
 
-    try:
-        worksheet = sh.worksheet(nome_aba)
-    except gspread.WorksheetNotFound:
-        # Se a aba não existe, cria ela com o cabeçalho
-        worksheet = sh.add_worksheet(title=nome_aba, rows=1000, cols=20)
-        worksheet.append_row(colunas_padrao)
-        return pd.DataFrame(columns=colunas_padrao)
-
-    # Lê todos os dados
-    dados = worksheet.get_all_records()
-    df = pd.DataFrame(dados)
-    
-    # Se estiver vazio mas tiver cabeçalho, ajusta colunas
-    if df.empty:
-        return pd.DataFrame(columns=colunas_padrao)
-        
-    return df
+        except (ConnectionError, ReadTimeout, gspread.exceptions.APIError) as e:
+            # Se for a última tentativa, não tem o que fazer, deixa o erro subir
+            if attempt == max_retries - 1:
+                print(f"❌ Erro fatal ao ler '{aba}': {e}")
+                # Retorna um DF vazio para o app não quebrar totalmente, ou você pode dar 'raise e'
+                return pd.DataFrame(columns=cols_esperadas) 
+            
+            print(f"⚠️ Erro de conexão ao ler '{aba}'. Tentando de novo em {wait_seconds}s... ({attempt+1}/{max_retries})")
+            time.sleep(wait_seconds)
+            wait_seconds *= 2 # Backoff exponencial (espera 2s, depois 4s...)
+            
+        except gspread.exceptions.WorksheetNotFound:
+            # Se a aba não existe, cria um DF vazio e não tenta de novo (erro lógico, não de conexão)
+            print(f"⚠️ Aba '{aba}' não encontrada. Retornando vazio.")
+            return pd.DataFrame(columns=cols_esperadas)
 
 def save_gsheet(nome_aba, df):
     """
