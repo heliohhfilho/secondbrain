@@ -249,9 +249,9 @@ def render_page():
 
         # Cores
         color_map = {
-            'Concluído': {'fill': "#0aff60", 'border': '#166534', 'font': '#166534'}, # Verde Suave
-            'Cursando':  {'fill': "#4d78af", 'border': '#1e40af', 'font': '#1e40af'}, # Azul Suave
-            'Futuro':    {'fill': "#f81515", 'border': '#4b5563', 'font': '#9ca3af'}  # Cinza
+            'Concluído': {'fill': "#024419", 'border': "#000000", 'font': "#BCFCD5"}, # Verde Suave
+            'Cursando':  {'fill': "#011f46", 'border': "#000000", 'font': "#a8bcff"}, # Azul Suave
+            'Futuro':    {'fill': "#500000", 'border': "#000000", 'font': "#fdcbcb"}  # Cinza
         }
 
         # Agrupa matérias por semestre para criar os "Clusters"
