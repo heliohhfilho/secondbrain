@@ -206,7 +206,7 @@ def render_page():
                     v_parcela, v_total = calcular_financiamento(input_preco, entrada, taxa, n_parc)
                     
                     st.markdown(f"""
-                    <div style='background-color: #f0f2f6; padding: 10px; border-radius: 5px;'>
+                    <div style='background-color: #00000; padding: 10px; border-radius: 5px;'>
                         <b>Parcela Estimada:</b> R$ {v_parcela:,.2f}<br>
                         <small>Total Final: R$ {v_total:,.2f} (Ágio: {((v_total/input_preco)-1)*100:.1f}%)</small>
                     </div>
