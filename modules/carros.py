@@ -1,247 +1,295 @@
 import streamlit as st
 import pandas as pd
 import requests
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
 from datetime import date
-from modules import conexoes
+from modules import conexoes # Mantendo sua conexão original
 
-# --- API FIPE (Brasil) ---
+# --- CONFIGURAÇÕES VISUAIS (ESTILO TÉCNICO) ---
+plt.style.use('bmh')
+
+# --- API FIPE ---
 FIPE_BASE_URL = "https://parallelum.com.br/fipe/api/v1"
 
-# --- FUNÇÕES DE CACHE (Para não travar o app) ---
-@st.cache_data(ttl=3600) # Cache de 1 hora
-def get_marcas():
-    url = f"{FIPE_BASE_URL}/carros/marcas"
+# --- CACHE & NETWORK ---
+@st.cache_data(ttl=3600)
+def get_marcas(tipo_veiculo):
+    url = f"{FIPE_BASE_URL}/{tipo_veiculo}/marcas"
     try: return requests.get(url).json()
     except: return []
 
 @st.cache_data(ttl=600)
-def get_modelos(marca_id):
-    url = f"{FIPE_BASE_URL}/carros/marcas/{marca_id}/modelos"
+def get_modelos(tipo_veiculo, marca_id):
+    url = f"{FIPE_BASE_URL}/{tipo_veiculo}/marcas/{marca_id}/modelos"
     try: return requests.get(url).json()['modelos']
     except: return []
 
 @st.cache_data(ttl=600)
-def get_anos(marca_id, modelo_id):
-    url = f"{FIPE_BASE_URL}/carros/marcas/{marca_id}/modelos/{modelo_id}/anos"
+def get_anos(tipo_veiculo, marca_id, modelo_id):
+    url = f"{FIPE_BASE_URL}/{tipo_veiculo}/marcas/{marca_id}/modelos/{modelo_id}/anos"
     try: return requests.get(url).json()
     except: return []
 
-def get_fipe_details(marca_id, modelo_id, ano_id):
-    # Sem cache aqui, queremos o preço fresco
-    url = f"{FIPE_BASE_URL}/carros/marcas/{marca_id}/modelos/{modelo_id}/anos/{ano_id}"
+def get_fipe_details(tipo_veiculo, marca_id, modelo_id, ano_id):
+    url = f"{FIPE_BASE_URL}/{tipo_veiculo}/marcas/{marca_id}/modelos/{modelo_id}/anos/{ano_id}"
     try: return requests.get(url).json()
     except: return None
 
-# --- DADOS & SAVE ---
-def load_data():
-    # Definição do Schema Esperado
-    cols = ["ID", "Marca", "Modelo", "Ano_Modelo", "Placa", "Fipe_Ref", "Preco_Negociado", "KM", "Zero_Cem", "Consumo_Medio", "Status", "Data_Add"]
+# --- LÓGICA DE INTELIGÊNCIA TEMPORAL (DO SCRIPT A PARA O B) ---
+def get_historico_precos(tipo_veiculo, marca_id, modelo_id, lista_anos_codigos):
+    """
+    Itera sobre os anos disponíveis do modelo para construir o gráfico de desvalorização.
+    Limita aos últimos 6 anos para performance.
+    """
+    dataset = []
+    # Pega apenas os 6 anos mais recentes para não travar a API
+    alvo = lista_anos_codigos[:6] 
     
-    # Tenta carregar. Se a aba não existir ou estiver vazia, pode vir sem colunas.
+    for item_ano in alvo:
+        url = f"{FIPE_BASE_URL}/{tipo_veiculo}/marcas/{marca_id}/modelos/{modelo_id}/anos/{item_ano['codigo']}"
+        try:
+            r = requests.get(url).json()
+            valor = float(r['Valor'].replace("R$ ", "").replace(".", "").replace(",", "."))
+            # Tratamento para ano: Se for "32000" é Zero KM, convertemos para ano atual + 1 ou label específico
+            ano_num = r['AnoModelo']
+            dataset.append({'Ano': ano_num, 'Preco': valor, 'Label': item_ano['nome']})
+        except:
+            continue
+    
+    return pd.DataFrame(dataset).sort_values('Ano')
+
+def plotar_grafico_tecnico(df_hist, modelo_nome):
+    """Gera o objeto Figure do Matplotlib para renderizar no Streamlit"""
+    fig, ax = plt.subplots(figsize=(10, 5))
+    
+    ax.plot(df_hist['Ano'], df_hist['Preco'], marker='o', linewidth=2.5, color='#2980b9')
+    ax.set_title(f"Curva de Desvalorização: {modelo_nome}", fontweight='bold', fontsize=12)
+    ax.yaxis.set_major_formatter(mtick.StrMethodFormatter('R$ {x:,.0f}'))
+    ax.grid(True, linestyle='--', alpha=0.6)
+    
+    # Anotação no valor mais recente
+    if not df_hist.empty:
+        ult = df_hist.iloc[-1]
+        ax.annotate(f"Ref: R$ {ult['Preco']/1000:.1f}k", 
+                   (ult['Ano'], ult['Preco']), 
+                   xytext=(0, 10), textcoords='offset points', 
+                   ha='center', fontweight='bold',
+                   bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#2980b9", alpha=0.9))
+    
+    return fig
+
+# --- CÁLCULO FINANCEIRO ---
+def calcular_financiamento(valor_total, entrada, taxa_mensal, meses):
+    principal = valor_total - entrada
+    if principal <= 0: return 0, 0
+    
+    i = taxa_mensal / 100
+    if i == 0:
+        parcela = principal / meses
+    else:
+        # Fórmula Price (PMT)
+        parcela = principal * (i * (1 + i)**meses) / ((1 + i)**meses - 1)
+    
+    total_pago = (parcela * meses) + entrada
+    return parcela, total_pago
+
+# --- IO DADOS ---
+def load_data():
+    cols = ["ID", "Tipo", "Marca", "Modelo", "Ano_Modelo", "Placa", "Fipe_Ref", "Preco_Negociado", "KM", "Zero_Cem", "Consumo_Medio", "Status", "Data_Add"]
     df = conexoes.load_gsheet("Carros", cols)
     
-    # --- SCHEMA SHIELD (BLINDAGEM) ---
-    # Se o DataFrame estiver vazio ou faltando colunas, cria a estrutura forçada
-    if df.empty:
-        df = pd.DataFrame(columns=cols)
+    if df.empty: df = pd.DataFrame(columns=cols)
     else:
-        # Garante que todas as colunas essenciais existam, mesmo que vazias
         for col in cols:
-            if col not in df.columns:
-                df[col] = 0 if col in ["ID", "Fipe_Ref", "Preco_Negociado", "KM", "Zero_Cem", "Consumo_Medio"] else ""
+            if col not in df.columns: df[col] = 0 if col in ["ID", "Fipe_Ref", "Preco_Negociado"] else ""
 
-    # --- TIPO DE DADOS (SAFE CAST) ---
-    # Agora é seguro converter, pois garantimos que a coluna existe acima
-    df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
-    df["Fipe_Ref"] = pd.to_numeric(df["Fipe_Ref"], errors='coerce').fillna(0.0)
-    df["Preco_Negociado"] = pd.to_numeric(df["Preco_Negociado"], errors='coerce').fillna(0.0)
-    df["Zero_Cem"] = pd.to_numeric(df["Zero_Cem"], errors='coerce').fillna(0.0)
-    df["Consumo_Medio"] = pd.to_numeric(df["Consumo_Medio"], errors='coerce').fillna(0.0)
-    
+    # Safe Cast
+    numeric_cols = ["ID", "Fipe_Ref", "Preco_Negociado", "KM", "Zero_Cem", "Consumo_Medio"]
+    for c in numeric_cols:
+        df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
+        
     return df
 
 def save_data(df):
-    df_s = df.copy()
-    conexoes.save_gsheet("Carros", df_s)
+    conexoes.save_gsheet("Carros", df)
 
-# --- RENDERIZAÇÃO ---
+# --- APP PRINCIPAL ---
 def render_page():
-    st.header("🏎️ Garage Analytics: Compra & Venda")
+    st.set_page_config(page_title="Garage Engineering", layout="wide")
+    st.header("🏎️ Garage Analytics: Engineering Edition")
+    
     df = load_data()
+    
+    # Sidebar de Controle
+    with st.sidebar:
+        st.subheader("⚙️ Parâmetros de Busca")
+        tipo_veiculo = st.radio("Categoria:", ["carros", "motos"], horizontal=True)
 
-    tab_finder, tab_garage, tab_calc = st.tabs(["🔍 Buscador FIPE (Finder)", "🚗 Minha Garagem", "🧮 Calculadora de Viabilidade"])
+    tab_finder, tab_garage, tab_calc = st.tabs(["🔍 Buscador & Análise", "🚗 Garagem Virtual", "⚔️ Comparativo"])
 
-    # ------------------------------------------------------------------
-    # ABA 1: FINDER (INTEGRAÇÃO API)
-    # ------------------------------------------------------------------
+    # ==============================================================================
+    # TAB 1: FINDER (COM LÓGICA DO SCRIPT A)
+    # ==============================================================================
     with tab_finder:
-        st.subheader("Analisar Oportunidade de Mercado")
+        c_search, c_results = st.columns([1, 2])
         
-        # 1. Seleção em Cascata (Marca -> Modelo -> Ano)
-        marcas = get_marcas()
-        if not marcas:
-            st.error("Erro ao conectar na API FIPE.")
-        else:
+        with c_search:
+            st.subheader("1. Definição do Veículo")
+            marcas = get_marcas(tipo_veiculo)
             marcas_dict = {m['nome']: m['codigo'] for m in marcas}
-            marca_sel = st.selectbox("1. Selecione a Marca", options=marcas_dict.keys())
+            
+            marca_sel = st.selectbox("Marca", options=marcas_dict.keys())
+            
+            id_modelo, id_ano = None, None
             
             if marca_sel:
                 id_marca = marcas_dict[marca_sel]
-                modelos = get_modelos(id_marca)
+                modelos = get_modelos(tipo_veiculo, id_marca)
                 modelos_dict = {m['nome']: m['codigo'] for m in modelos}
-                modelo_sel = st.selectbox("2. Selecione o Modelo", options=modelos_dict.keys())
+                modelo_sel = st.selectbox("Modelo", options=modelos_dict.keys())
                 
                 if modelo_sel:
                     id_modelo = modelos_dict[modelo_sel]
-                    anos = get_anos(id_marca, id_modelo)
+                    anos = get_anos(tipo_veiculo, id_marca, id_modelo)
+                    # Ordena anos para pegar os mais recentes primeiro na lista
                     anos_dict = {a['nome']: a['codigo'] for a in anos}
-                    ano_sel = st.selectbox("3. Selecione o Ano/Versão", options=anos_dict.keys())
+                    ano_sel = st.selectbox("Ano/Versão", options=anos_dict.keys())
                     
                     if ano_sel:
-                        # Busca o Preço Final
                         id_ano = anos_dict[ano_sel]
-                        if st.button("Buscar Dados FIPE", type="primary"):
-                            dados = get_fipe_details(id_marca, id_modelo, id_ano)
-                            st.session_state['fipe_temp'] = dados # Salva na sessão
+                        if st.button("🔎 Executar Análise Técnica", type="primary"):
+                            # Pega dado pontual
+                            dados_fipe = get_fipe_details(tipo_veiculo, id_marca, id_modelo, id_ano)
+                            # Pega histórico (Loop do Script A)
+                            df_hist = get_historico_precos(tipo_veiculo, id_marca, id_modelo, anos)
+                            
+                            st.session_state['analise_atual'] = {
+                                'fipe': dados_fipe,
+                                'hist': df_hist,
+                                'tipo': tipo_veiculo
+                            }
 
-        # Exibição do Resultado e Input Humano
-        if 'fipe_temp' in st.session_state:
-            fipe = st.session_state['fipe_temp']
-            st.divider()
-            
-            c_val, c_info = st.columns([1, 2])
-            valor_fipe_float = float(fipe['Valor'].replace("R$ ", "").replace(".", "").replace(",", "."))
-            
-            with c_val:
-                st.metric("Tabela FIPE", fipe['Valor'])
-                st.caption(f"Ref: {fipe['MesReferencia']}")
-            
-            with c_info:
-                st.markdown(f"**Veículo:** {fipe['Modelo']}")
-                st.markdown(f"**Ano:** {fipe['AnoModelo']} | **Combustível:** {fipe['Combustivel']}")
-            
-            # INPUTS DE VIABILIDADE (INPUT HUMANO)
-            with st.form("analise_compra"):
-                st.subheader("🛠️ Dados da Unidade Específica")
-                c1, c2 = st.columns(2)
-                preco_neg = c1.number_input("Preço Pedido (R$)", min_value=0.0, value=valor_fipe_float, step=500.0)
-                km_atual = c2.number_input("Quilometragem", min_value=0, value=50000, step=1000)
+        with c_results:
+            if 'analise_atual' in st.session_state:
+                data = st.session_state['analise_atual']
+                fipe = data['fipe']
+                df_hist = data['hist']
                 
-                st.markdown("---")
-                st.caption("🏎️ Performance & Eficiência (Preencher Manualmente)")
-                c3, c4 = st.columns(2)
-                zero_cem = c3.number_input("0-100 km/h (s)", min_value=0.0, value=9.0, step=0.1)
-                consumo = c4.number_input("Consumo Médio (km/l)", min_value=0.0, value=10.0, step=0.1)
-                
-                # CÁLCULO DE SCORE
-                delta_preco = (preco_neg - valor_fipe_float) / valor_fipe_float # % acima ou abaixo
-                score_eco = (consumo * 2) # Peso 2 para consumo
-                score_fun = (15 - zero_cem) * 3 # Quanto menor o tempo, maior a nota (Peso 3)
-                score_fin = (1 - delta_preco) * 100 # Se pagar menos, score sobe
-                
-                viabilidade = (score_fin * 0.5) + (score_eco * 0.2) + (score_fun * 0.3)
-                
-                placa = st.text_input("Placa (Opcional)")
-                
-                if st.form_submit_button("Salvar na Garagem"):
-                    new_id = 1 if df.empty else df['ID'].max() + 1
-                    novo = {
-                        "ID": new_id, "Marca": fipe['Marca'], "Modelo": fipe['Modelo'],
-                        "Ano_Modelo": fipe['AnoModelo'], "Placa": placa,
-                        "Fipe_Ref": valor_fipe_float, "Preco_Negociado": preco_neg,
-                        "KM": km_atual, "Zero_Cem": zero_cem, "Consumo_Medio": consumo,
-                        "Status": "Em Análise", "Data_Add": str(date.today())
-                    }
-                    df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
-                    save_data(df)
-                    st.success(f"Carro salvo! Score de Viabilidade: {int(viabilidade)}")
-                    del st.session_state['fipe_temp']
-                    st.rerun()
+                valor_fipe_float = float(fipe['Valor'].replace("R$ ", "").replace(".", "").replace(",", "."))
 
-# ------------------------------------------------------------------
-    # ABA 2: GARAGEM (CORREÇÃO DE DIVISÃO POR ZERO)
-    # ------------------------------------------------------------------
+                # HEADER DO RELATÓRIO
+                st.info(f"Relatório Técnico: {fipe['Modelo']}")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Valor de Referência", fipe['Valor'])
+                m2.metric("Ano Modelo", fipe['AnoModelo'])
+                m3.metric("Código Fipe", fipe['CodigoFipe'])
+                
+                # GRÁFICO (Importado do Script A)
+                if not df_hist.empty:
+                    fig = plotar_grafico_tecnico(df_hist, fipe['Modelo'])
+                    st.pyplot(fig)
+                
+                st.divider()
+                
+                # CÁLCULO DE PARCELAMENTO & VIABILIDADE
+                c_fin, c_tec = st.columns(2)
+                
+                with c_fin:
+                    st.subheader("💰 Simulação Financeira")
+                    input_preco = st.number_input("Preço Negociado (R$)", value=valor_fipe_float, step=500.0)
+                    col_p1, col_p2, col_p3 = st.columns(3)
+                    entrada = col_p1.number_input("Entrada", value=valor_fipe_float*0.2)
+                    taxa = col_p2.number_input("Juros a.m (%)", value=1.5, step=0.1)
+                    n_parc = col_p3.number_input("Parcelas", value=48, step=12)
+                    
+                    v_parcela, v_total = calcular_financiamento(input_preco, entrada, taxa, n_parc)
+                    
+                    st.markdown(f"""
+                    <div style='background-color: #f0f2f6; padding: 10px; border-radius: 5px;'>
+                        <b>Parcela Estimada:</b> R$ {v_parcela:,.2f}<br>
+                        <small>Total Final: R$ {v_total:,.2f} (Ágio: {((v_total/input_preco)-1)*100:.1f}%)</small>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                with c_tec:
+                    st.subheader("⚙️ Dados de Compra")
+                    with st.form("salvar_garagem"):
+                        km = st.number_input("KM Atual", value=0)
+                        placa = st.text_input("Placa (Opcional)")
+                        
+                        # Score Simplificado
+                        delta = (input_preco - valor_fipe_float) / valor_fipe_float
+                        str_delta = f"{delta*100:.1f}%"
+                        if delta < 0: st.success(f"Oportunidade: {str_delta} abaixo da FIPE")
+                        else: st.warning(f"Sobrepreço: {str_delta} acima da FIPE")
+                        
+                        if st.form_submit_button("💾 Salvar na Garagem"):
+                            new_id = 1 if df.empty else df['ID'].max() + 1
+                            novo = {
+                                "ID": new_id, "Tipo": data['tipo'], "Marca": fipe['Marca'], 
+                                "Modelo": fipe['Modelo'], "Ano_Modelo": fipe['AnoModelo'], 
+                                "Placa": placa, "Fipe_Ref": valor_fipe_float, 
+                                "Preco_Negociado": input_preco, "KM": km, 
+                                "Zero_Cem": 0, "Consumo_Medio": 0, # Placeholder
+                                "Status": "Em Análise", "Data_Add": str(date.today())
+                            }
+                            df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
+                            save_data(df)
+                            st.toast("Veículo salvo com sucesso!")
+                            st.rerun()
+
+    # ==============================================================================
+    # TAB 2: GARAGE (Visualização)
+    # ==============================================================================
     with tab_garage:
         if df.empty:
-            st.info("Garagem vazia.")
+            st.warning("Nenhum veículo monitorado.")
         else:
-            for idx, row in df.iterrows():
-                # Conversão segura para float
-                fipe_val = float(row['Fipe_Ref'])
-                preco_neg = float(row['Preco_Negociado'])
-                
-                delta = preco_neg - fipe_val
-                
-                # --- GUARD CLAUSE: Evita divisão por zero ---
-                if fipe_val > 0:
-                    delta_perc = (delta / fipe_val) * 100
-                else:
-                    delta_perc = 0.0 # Se não tem FIPE, assume 0% de variação
-                
-                with st.container(border=True):
-                    c_tit, c_kpi = st.columns([3, 2])
-                    
-                    with c_tit:
-                        st.subheader(f"{row['Modelo']}")
-                        st.caption(f"{row['Marca']} | {row['Ano_Modelo']} | {row['KM']} km")
-                        st.text(f"0-100: {row['Zero_Cem']}s | Consumo: {row['Consumo_Medio']} km/l")
-                    
-                    with c_kpi:
-                        # Lógica visual segura
-                        if fipe_val > 0:
-                            if delta < 0:
-                                st.metric("Preço", f"R$ {preco_neg:,.2f}", f"{delta_perc:.1f}% abaixo FIPE", delta_color="normal")
-                            else:
-                                st.metric("Preço", f"R$ {preco_neg:,.2f}", f"+{delta_perc:.1f}% sobre FIPE", delta_color="inverse")
-                            st.caption(f"FIPE Ref: R$ {fipe_val:,.2f}")
-                        else:
-                            # Caso onde FIPE é zero (provavelmente inserção manual ou erro de API)
-                            st.metric("Preço Pago", f"R$ {preco_neg:,.2f}")
-                            st.warning("⚠️ Sem referência FIPE cadastrada")
-                    
-                    # Botões de Ação
-                    col_b1, col_b2 = st.columns(2)
-                    if col_b1.button("✅ Comprado", key=f"buy_{row['ID']}"):
-                        df.at[idx, 'Status'] = 'Comprado'
-                        save_data(df); st.rerun()
-                    
-                    if col_b2.button("🗑️ Deletar", key=f"del_{row['ID']}"):
-                        df = df[df['ID'] != row['ID']]
-                        save_data(df); st.rerun()
-                        
-    # ------------------------------------------------------------------
-    # ABA 3: COMPARATIVO (ENGENHARIA PURA)
-    # ------------------------------------------------------------------
-    with tab_calc:
-        if len(df) >= 2:
-            st.subheader("📊 Comparativo Técnico")
-            # Selecionar 2 carros para duelo
-            opcoes = df['Modelo'].unique()
-            car1 = st.selectbox("Carro 1", opcoes, index=0)
-            car2 = st.selectbox("Carro 2", opcoes, index=1 if len(opcoes)>1 else 0)
+            st.dataframe(df.style.format({"Fipe_Ref": "R$ {:,.2f}", "Preco_Negociado": "R$ {:,.2f}"}))
             
-            if car1 and car2:
-                d1 = df[df['Modelo'] == car1].iloc[0]
-                d2 = df[df['Modelo'] == car2].iloc[0]
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown(f"### {d1['Marca']}")
-                    st.image("https://img.icons8.com/ios/100/car--v1.png", width=50) # Placeholder
-                    st.metric("0-100 km/h", f"{d1['Zero_Cem']} s")
-                    st.metric("Consumo", f"{d1['Consumo_Medio']} km/l")
-                    st.metric("Preço", f"R$ {d1['Preco_Negociado']/1000:.1f}k")
+            # Cards Detalhados
+            for idx, row in df.iterrows():
+                with st.expander(f"{row['Tipo'].upper()} | {row['Modelo']} ({row['Ano_Modelo']})"):
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Preço Alvo", f"R$ {row['Preco_Negociado']:,.2f}")
+                    c2.metric("Fipe na Data", f"R$ {row['Fipe_Ref']:,.2f}")
+                    
+                    if st.button("🗑️ Remover", key=f"del_{row['ID']}"):
+                        df = df[df['ID'] != row['ID']]
+                        save_data(df)
+                        st.rerun()
 
-                with col2:
-                    st.markdown(f"### {d2['Marca']}")
-                    st.image("https://img.icons8.com/ios/100/car--v1.png", width=50) # Placeholder
-                    delta_0100 = d2['Zero_Cem'] - d1['Zero_Cem']
-                    delta_cons = d2['Consumo_Medio'] - d1['Consumo_Medio']
-                    delta_price = d2['Preco_Negociado'] - d1['Preco_Negociado']
-
-                    st.metric("0-100 km/h", f"{d2['Zero_Cem']} s", f"{delta_0100:.1f}s", delta_color="inverse")
-                    st.metric("Consumo", f"{d2['Consumo_Medio']} km/l", f"{delta_cons:.1f} km/l")
-                    st.metric("Preço", f"R$ {d2['Preco_Negociado']/1000:.1f}k", f"R$ {delta_price/1000:.1f}k", delta_color="inverse")
+    # ==============================================================================
+    # TAB 3: ENGENHARIA COMPARATIVA
+    # ==============================================================================
+    with tab_calc:
+        st.subheader("Matriz de Comparação")
+        if len(df) < 2:
+            st.info("Adicione pelo menos 2 veículos na garagem para comparar.")
         else:
-            st.info("Adicione pelo menos 2 carros para comparar.")
+            sel_a = st.selectbox("Veículo A", df['Modelo'].unique(), key='va')
+            sel_b = st.selectbox("Veículo B", df['Modelo'].unique(), key='vb')
+            
+            if sel_a and sel_b:
+                dA = df[df['Modelo'] == sel_a].iloc[0]
+                dB = df[df['Modelo'] == sel_b].iloc[0]
+                
+                col_a, col_meio, col_b = st.columns([1, 0.2, 1])
+                
+                with col_a:
+                    st.markdown(f"### {dA['Marca']}")
+                    st.caption(dA['Modelo'])
+                    st.metric("Investimento", f"R$ {dA['Preco_Negociado']:,.0f}")
+                    st.metric("KM", f"{dA['KM']:,}")
+
+                with col_b:
+                    st.markdown(f"### {dB['Marca']}")
+                    st.caption(dB['Modelo'])
+                    diff_preco = dB['Preco_Negociado'] - dA['Preco_Negociado']
+                    st.metric("Investimento", f"R$ {dB['Preco_Negociado']:,.0f}", f"{diff_preco:,.0f}", delta_color="inverse")
+                    diff_km = dB['KM'] - dA['KM']
+                    st.metric("KM", f"{dB['KM']:,}", f"{diff_km:,}", delta_color="inverse")
+
+if __name__ == "__main__":
+    render_page()
