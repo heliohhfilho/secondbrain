@@ -4,6 +4,7 @@ import numpy as np
 from datetime import datetime, date, timedelta
 import os
 import graphviz
+import time
 
 from modules import conexoes
 
@@ -21,8 +22,8 @@ def load_data():
     df_conf = conexoes.load_gsheet("Fac_Config", cols_conf)
     if df_conf.empty:
         df_conf = pd.DataFrame([{"Inicio": str(date.today()), "Fim": str(date.today() + timedelta(days=120))}])
-        df_rec = conexoes.load_gsheet("Fac_Recursos", cols_rec)
     
+    df_rec = conexoes.load_gsheet("Fac_Recursos", cols_rec)
     df_h = conexoes.load_gsheet("Fac_Horarios", cols_hor)
     df_m = conexoes.load_gsheet("Fac_Materias", cols_mat)
     df_a = conexoes.load_gsheet("Fac_Avaliacoes", cols_aval)
@@ -175,7 +176,7 @@ def simular_cronograma(df):
 
 def render_page():
     st.header("🎓 Engenharia Acadêmica")
-    df_conf, df_hor, df_mat, df_aval, df_top = load_data()
+    df_conf, df_hor, df_mat, df_aval, df_top, df_rec = load_data()
 
     hoje = date.today()
     inicio_sem = pd.to_datetime(df_conf.iloc[0]['Inicio']).date()
