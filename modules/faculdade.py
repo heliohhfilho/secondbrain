@@ -13,13 +13,15 @@ def load_data():
     cols_conf = ["Inicio", "Fim"]
     cols_hor = ["Dia_Semana", "Hora_Inicio", "Materia", "Sala"]
     cols_mat = ["Materia", "Semestre_Ref", "Status", "Pre_Requisito", "Professor"]
-    cols_aval = ["Materia", "Nome", "Data", "Peso", "Nota", "Concluido"]
-    cols_top = ["Materia", "Topico", "Prova_Ref", "Teoria_Ok", "Exercicio_Ok", "Revisao_Ok"]
+    cols_aval = ["Materia", "Nome", "Data", "Peso", "Nota", "Concluido", "Topicos_Ref"]
+    cols_top = ["Materia", "Topico", "Status"]
+    cols_rec = ["Materia", "Nome", "Link", "Tipo"]
 
     # Carregamento via Google Sheets
     df_conf = conexoes.load_gsheet("Fac_Config", cols_conf)
     if df_conf.empty:
         df_conf = pd.DataFrame([{"Inicio": str(date.today()), "Fim": str(date.today() + timedelta(days=120))}])
+        df_rec = conexoes.load_gsheet("Fac_Recursos", cols_rec)
     
     df_h = conexoes.load_gsheet("Fac_Horarios", cols_hor)
     df_m = conexoes.load_gsheet("Fac_Materias", cols_mat)
@@ -31,11 +33,11 @@ def load_data():
         df_a["Peso"] = pd.to_numeric(df_a["Peso"], errors='coerce').fillna(1.0)
         df_a["Nota"] = pd.to_numeric(df_a["Nota"], errors='coerce').fillna(0.0)
         df_a["Concluido"] = df_a["Concluido"].astype(str).str.upper() == "TRUE"
+        if "Topicos_Ref" not in df_a.columns: df_a["Topicos_Ref"] = "-"
+        df_a["Topicos_Ref"] = df_a["Topicos_Ref"].apply(str_to_list)
 
     if not df_t.empty:
-        for col in ["Teoria_Ok", "Exercicio_Ok", "Revisao_Ok"]:
-            df_t[col] = df_t[col].astype(str).str.upper() == "TRUE"
-        if "Prova_Ref" not in df_t.columns: df_t["Prova_Ref"] = "Geral"
+        if "Status" not in df_t.columns: df_t["Status"] = "A Fazer"
 
     if not df_m.empty:
         # CONVERSÃO CRÍTICA: String "Mat A, Mat B" -> Lista ["Mat A", "Mat B"]
@@ -47,7 +49,11 @@ def load_data():
             
         df_m["Pre_Requisito"] = df_m["Pre_Requisito"].apply(str_to_list)
 
-    return df_conf, df_h, df_m, df_a, df_t
+    def str_to_list(x):
+        if pd.isna(x) or x == "-" or str(x).strip() == "": return []
+        return [i.strip() for i in str(x).split(",") if i.strip()]
+
+    return df_conf, df_h, df_m, df_a, df_t, df_rec
 
 def save_data(df, aba):
     # Converte tudo para string antes de subir para evitar erros de serialização
@@ -170,8 +176,7 @@ def simular_cronograma(df):
 def render_page():
     st.header("🎓 Engenharia Acadêmica")
     df_conf, df_hor, df_mat, df_aval, df_top = load_data()
-    
-    # ... (MANTENHA O CÓDIGO DO DETECTOR DE FÉRIAS AQUI) ...
+
     hoje = date.today()
     inicio_sem = pd.to_datetime(df_conf.iloc[0]['Inicio']).date()
     fim_sem = pd.to_datetime(df_conf.iloc[0]['Fim']).date()
@@ -244,7 +249,7 @@ def render_page():
 
         st.graphviz_chart(graph, width='stretch')
 
-# ==============================================================================
+    # ==============================================================================
     # MODO 1: DASHBOARD & GESTÃO DE HORÁRIOS (ATUALIZADO)
     # ==============================================================================
     if view_mode == "Dashboard & Horários":
@@ -472,3 +477,225 @@ def render_page():
                         st.error("Essa matéria já existe!")
                     else:
                         st.warning("Preencha o nome.")
+
+    # ==============================================================================
+    # MODO 3: LMS GAMIFICADO & GESTÃO DA MATÉRIA
+    # ==============================================================================
+    else:
+        materia_atual = view_mode
+        st.title(f"🥋 Dojo: {materia_atual}")
+        
+        # Filtra dados da matéria atual
+        # ATENÇÃO: Adicione df_rec no desempacotamento lá no início do render_page:
+        # df_conf, df_hor, df_mat, df_aval, df_top, df_rec = load_data() 
+        
+        my_aval = df_aval[df_aval['Materia'] == materia_atual].copy()
+        my_top = df_top[df_top['Materia'] == materia_atual].copy()
+        my_rec = df_rec[df_rec['Materia'] == materia_atual].copy()
+
+        # --- HUD DO JOGADOR (XP & STATUS) ---
+        if not my_top.empty:
+            total_tops = len(my_top)
+            dominados = len(my_top[my_top['Status'] == 'Dominado'])
+            xp = int((dominados / total_tops) * 100)
+            
+            c_xp, c_msg = st.columns([3, 1])
+            c_xp.progress(xp, text=f"Nível de Domínio (XP): {xp}%")
+            if xp == 100: c_msg.markdown("🏆 **MESTRE!**")
+            elif xp > 50: c_msg.markdown("⚔️ **Veterano**")
+            else: c_msg.markdown("🌱 **Novato**")
+        
+        st.divider()
+
+        # ABAS DO SISTEMA
+        tab_kanban, tab_provas, tab_recursos, tab_pomodoro = st.tabs([
+            "📋 Kanban de Tópicos", 
+            "📝 Avaliações & Média", 
+            "📚 Biblioteca (Links)",
+            "⏱️ Foco (Pomodoro)"
+        ])
+
+        # --- ABA 1: KANBAN (TOPICOS) ---
+        with tab_kanban:
+            st.caption("Use o método Kanban: Mova os cards da esquerda para a direita.")
+            
+            c_todo, c_doing, c_done = st.columns(3)
+            
+            # Funções auxiliares de visualização
+            def render_kanban_col(title, status_filter, color, next_status=None):
+                st.markdown(f"### :{color}[{title}]")
+                itens = my_top[my_top['Status'] == status_filter]
+                
+                with st.container(border=True):
+                    if itens.empty:
+                        st.caption("Vazio...")
+                    
+                    for idx, row in itens.iterrows():
+                        st.markdown(f"**{row['Topico']}**")
+                        
+                        # Botões de Movimento
+                        b_col1, b_col2 = st.columns(2)
+                        if status_filter != "Dominado":
+                            if b_col1.button("➡️ Avançar", key=f"next_{idx}"):
+                                df_top.at[idx, 'Status'] = next_status
+                                save_data(df_top, "Fac_Topicos")
+                                st.rerun()
+                        
+                        if b_col2.button("🗑️", key=f"del_top_{idx}"):
+                            df_top.drop(idx, inplace=True)
+                            save_data(df_top, "Fac_Topicos")
+                            st.rerun()
+                        st.divider()
+
+            with c_todo: render_kanban_col("A Fazer", "A Fazer", "red", "Estudando")
+            with c_doing: render_kanban_col("Estudando", "Estudando", "orange", "Dominado")
+            with c_done: render_kanban_col("Dominado", "Dominado", "green", None)
+
+            # Adicionar Novo Tópico
+            with st.expander("➕ Adicionar Novos Tópicos"):
+                with st.form("add_topic"):
+                    novo_t = st.text_area("Digite os tópicos (um por linha)")
+                    if st.form_submit_button("Adicionar"):
+                        lista_novos = [t.strip() for t in novo_t.split("\n") if t.strip()]
+                        for item in lista_novos:
+                            n = {"Materia": materia_atual, "Topico": item, "Status": "A Fazer"}
+                            df_top = pd.concat([df_top, pd.DataFrame([n])], ignore_index=True)
+                        save_data(df_top, "Fac_Topicos")
+                        st.rerun()
+
+        # --- ABA 2: AVALIAÇÕES (COM CÁLCULO DE MÉDIA E VÍNCULO) ---
+        with tab_provas:
+            c1, c2 = st.columns([2, 1])
+            
+            with c1:
+                st.subheader("Boletim")
+                if not my_aval.empty:
+                    # Editor de Notas
+                    edited_aval = st.data_editor(
+                        my_aval,
+                        column_config={
+                            "Materia": None,
+                            "Topicos_Ref": st.column_config.ListColumn("O que cai?"),
+                            "Peso": st.column_config.NumberColumn("Peso", min_value=0.0, step=0.1),
+                            "Nota": st.column_config.NumberColumn("Sua Nota", min_value=0.0, max_value=10.0),
+                            "Concluido": st.column_config.CheckboxColumn("Feito?"),
+                        },
+                        hide_index=True,
+                        key="editor_provas_materia"
+                    )
+                    
+                    # Botão Salvar Notas
+                    if st.button("💾 Atualizar Notas"):
+                        # Atualiza o dataframe original com as edições desta matéria
+                        df_aval.update(edited_aval)
+                        save_data(df_aval, "Fac_Avaliacoes")
+                        st.success("Boletim atualizado!")
+                        st.rerun()
+
+            # Painel de Média (Direita)
+            with c2:
+                st.subheader("Performance")
+                if not my_aval.empty:
+                    # Filtra só o que já foi feito para calcular a média atual
+                    feitos = my_aval[my_aval['Concluido'] == True]
+                    
+                    if not feitos.empty and feitos['Peso'].sum() > 0:
+                        media_pond = (feitos['Nota'] * feitos['Peso']).sum() / feitos['Peso'].sum()
+                        
+                        delta_color = "normal" if media_pond >= 6 else "inverse"
+                        st.metric("Média Atual (Ponderada)", f"{media_pond:.2f}", delta="Meta: 6.0", delta_color=delta_color)
+                        
+                        # Simulação: Quanto preciso tirar?
+                        restantes = my_aval[my_aval['Concluido'] == False]
+                        if not restantes.empty:
+                            peso_restante = restantes['Peso'].sum()
+                            peso_feito = feitos['Peso'].sum()
+                            nota_atual_acumulada = (feitos['Nota'] * feitos['Peso']).sum()
+                            
+                            # Fórmula: (Acumulado + X * PesoRestante) / PesoTotal >= 6
+                            # X >= (6 * PesoTotal - Acumulado) / PesoRestante
+                            peso_total = peso_feito + peso_restante
+                            meta_final = 6.0
+                            
+                            nota_nec = (meta_final * peso_total - nota_atual_acumulada) / peso_restante
+                            
+                            if nota_nec <= 0:
+                                st.success("🎉 Você já passou matematicamente!")
+                            elif nota_nec > 10:
+                                st.error(f"💀 Impossível passar (Precisa de {nota_nec:.1f})")
+                            else:
+                                st.warning(f"🎯 Precisa de média **{nota_nec:.1f}** nas próximas.")
+                    else:
+                        st.info("Nenhuma prova concluída ainda.")
+
+            # Criar Nova Prova com Vínculo de Tópicos
+            st.divider()
+            with st.expander("📅 Agendar Nova Prova/Trabalho"):
+                with st.form("new_exam"):
+                    c_n, c_d, c_p = st.columns([2, 1, 1])
+                    nome_p = c_n.text_input("Nome (Ex: P1)")
+                    data_p = c_d.date_input("Data")
+                    peso_p = c_p.number_input("Peso", 0.0, 10.0, 1.0)
+                    
+                    # O PULO DO GATO: Selecionar tópicos existentes
+                    opcoes_topicos = my_top['Topico'].tolist()
+                    tops_sel = st.multiselect("Quais tópicos vão cair?", options=opcoes_topicos)
+                    
+                    if st.form_submit_button("Agendar"):
+                        n = {
+                            "Materia": materia_atual, "Nome": nome_p, "Data": data_p, 
+                            "Peso": peso_p, "Nota": 0.0, "Concluido": False,
+                            "Topicos_Ref": tops_sel # Salva a lista
+                        }
+                        df_aval = pd.concat([df_aval, pd.DataFrame([n])], ignore_index=True)
+                        save_data(df_aval, "Fac_Avaliacoes")
+                        st.rerun()
+
+        # --- ABA 3: BIBLIOTECA (RECURSOS) ---
+        with tab_recursos:
+            st.info("Centralize aqui PDFs, links do Drive, vídeos do YouTube, etc.")
+            
+            # Adicionar Recurso
+            c_add, c_list = st.columns([1, 2])
+            
+            with c_add:
+                with st.form("add_rec"):
+                    r_nome = st.text_input("Nome do Recurso")
+                    r_link = st.text_input("Link (URL)")
+                    r_tipo = st.selectbox("Tipo", ["PDF", "Vídeo", "Site", "Drive", "Outro"])
+                    if st.form_submit_button("Salvar"):
+                        nr = {"Materia": materia_atual, "Nome": r_nome, "Link": r_link, "Tipo": r_tipo}
+                        df_rec = pd.concat([df_rec, pd.DataFrame([nr])], ignore_index=True)
+                        save_data(df_rec, "Fac_Recursos")
+                        st.rerun()
+            
+            with c_list:
+                if not my_rec.empty:
+                    for _, row in my_rec.iterrows():
+                        icones = {"PDF": "📄", "Vídeo": "▶️", "Site": "🔗", "Drive": "📁", "Outro": "📦"}
+                        ico = icones.get(row['Tipo'], "📄")
+                        st.markdown(f"**{ico} [{row['Nome']}]({row['Link']})**")
+                else:
+                    st.caption("Nenhum material salvo.")
+
+        # --- ABA 4: POMODORO (SIMPLES) ---
+        with tab_pomodoro:
+            st.subheader("⏱️ Timer de Foco")
+            c_timer, c_config = st.columns(2)
+            
+            with c_config:
+                tempo_min = st.number_input("Minutos de Foco", 1, 120, 25)
+                st.caption("A técnica Pomodoro sugere 25min focado + 5min descanso.")
+            
+            with c_timer:
+                if st.button("🔥 Iniciar Foco"):
+                    progress_text = "Focando... Não saia desta tela!"
+                    my_bar = st.progress(0, text=progress_text)
+                    total_sec = tempo_min * 60
+                    
+                    for percent_complete in range(100):
+                        time.sleep(total_sec / 100)
+                        my_bar.progress(percent_complete + 1, text=f"Focando... {percent_complete+1}%")
+                    
+                    st.balloons()
+                    st.success("Sessão concluída! Descanse.")
