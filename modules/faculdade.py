@@ -251,7 +251,7 @@ def render_page():
         color_map = {
             'Concluído': {'fill': "#024419", 'border': "#000000", 'font': "#BCFCD5"}, # Verde Suave
             'Cursando':  {'fill': "#011f46", 'border': "#000000", 'font': "#a8bcff"}, # Azul Suave
-            'Futuro':    {'fill': "#500000", 'border': "#000000", 'font': "#fdcbcb"}  # Cinza
+            'Futuro':    {'fill': "#A70000", 'border': "#000000", 'font': "#fdcbcb"}  # Cinza
         }
 
         # Agrupa matérias por semestre para criar os "Clusters"
@@ -272,7 +272,7 @@ def render_page():
                 label_sem = f"{sem}º Semestre" + (" ✅" if todas_concluidas else "")
                 c.attr(label=label_sem)
                 c.attr(style='filled')
-                c.attr(color='#f0fdf4' if todas_concluidas else '#ffffff') # Fundo verde claro se 100%
+                c.attr(color="#00ff4c" if todas_concluidas else '#ffffff') # Fundo verde claro se 100%
                 
                 for _, row in materias_semestre.iterrows():
                     mat = row['Materia']
