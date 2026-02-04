@@ -203,52 +203,121 @@ def render_page():
         view_mode = st.radio("Visão", ["Dashboard & Horários", "Fluxo & Previsão (Novo)"] + cursando + ["Grade Curricular (CRUD)"])
 
     # ==============================================================================
-    # MODO NOVO: FLUXOGRAMA E PREVISÃO
+    # MODO NOVO: FLUXOGRAMA ESTRUTURADO POR SEMESTRE
     # ==============================================================================
     if view_mode == "Fluxo & Previsão (Novo)":
         st.subheader("🔭 Visão Estratégica do Curso")
 
-        # 1. Cálculo de Previsão
+        # 1. Cálculo de Previsão (Lógica mantém, só exibição muda)
         semestres_restantes, caminho_critico = calcular_previsao_semestres(df_mat)
         
         c1, c2, c3 = st.columns(3)
-        c1.metric("Semestres Mínimos", semestres_restantes)
-        ano_previsto = date.today().year + (semestres_restantes // 2)
-        c2.metric("Formatura Estimada", f"Fim de {ano_previsto}")
-        c3.metric("Matérias Pendentes", len(df_mat[df_mat['Status'] == 'Futuro']))
+        c1.metric("Gargalo (Caminho Crítico)", f"{semestres_restantes} Semestres")
+        
+        # Lógica de Ano Previsto (Considerando 2 semestres por ano)
+        semestre_atual_ano = 1 if date.today().month <= 6 else 2
+        ano_atual = date.today().year
+        semestres_para_add = semestres_restantes
+        
+        ano_final = ano_atual + (semestres_para_add // 2)
+        sem_final = semestre_atual_ano + (semestres_para_add % 2)
+        if sem_final > 2:
+            ano_final += 1
+            sem_final = 1
+            
+        c2.metric("Formatura Estimada", f"{sem_final}º Sem/{ano_final}")
+        
+        # Filtro de matérias pendentes reais (Status != Concluído)
+        pendentes_cnt = len(df_mat[df_mat['Status'] != 'Concluído'])
+        c3.metric("Matérias Pendentes", pendentes_cnt)
         
         if caminho_critico:
-            st.caption(f"🔒 **Seu Gargalo (Caminho Crítico):** {' → '.join(caminho_critico)}")
-            st.info("Essa é a sequência de matérias que trava sua formatura. Priorize essas!")
+            st.info(f"🚧 **Atenção:** Sua formatura está travada por esta sequência: **{' → '.join(caminho_critico)}**")
 
         st.divider()
 
-        # 2. Visualização Graphviz
+        # 2. Visualização Graphviz (AGORA COM CLUSTERS DE SEMESTRE)
         st.subheader("🗺️ Mapa de Dependências")
+        st.caption("As colunas representam os semestres ideais. Linhas vermelhas indicam pré-requisitos que você ainda não cumpriu.")
         
+        # Configuração Global do Gráfico
         graph = graphviz.Digraph()
-        graph.attr(rankdir='LR') # Da esquerda para direita
-        
-        # Cores baseadas no Status
-        colors = {'Concluído': '#90EE90', 'Cursando': '#87CEFA', 'Futuro': '#D3D3D3'}
+        graph.attr(rankdir='LR') # Left to Right
+        graph.attr(splines='ortho') # Linhas retas/angulares (menos bagunça que curvas)
+        graph.attr(nodesep='0.4') # Espaço entre nós
+        graph.attr(ranksep='1.0') # Espaço entre semestres
+
+        # Cores
+        color_map = {
+            'Concluído': {'fill': '#dcfce7', 'border': '#166534', 'font': '#166534'}, # Verde Suave
+            'Cursando':  {'fill': '#dbeafe', 'border': '#1e40af', 'font': '#1e40af'}, # Azul Suave
+            'Futuro':    {'fill': '#f3f4f6', 'border': '#4b5563', 'font': '#9ca3af'}  # Cinza
+        }
+
+        # Agrupa matérias por semestre para criar os "Clusters"
+        # Garante que Semestre_Ref seja numérico e trata erros
+        df_mat['Semestre_Ref'] = pd.to_numeric(df_mat['Semestre_Ref'], errors='coerce').fillna(99).astype(int)
+        semestres_unicos = sorted(df_mat['Semestre_Ref'].unique())
+
+        # Adiciona nós (bolinhas) organizados por semestre
+        for sem in semestres_unicos:
+            if sem == 99: continue # Pula semestres inválidos se houver
+            
+            # Subgrafo (Cluster) do Semestre
+            with graph.subgraph(name=f'cluster_{sem}') as c:
+                # Verifica se o semestre está 100% concluído para pintar o fundo
+                materias_semestre = df_mat[df_mat['Semestre_Ref'] == sem]
+                todas_concluidas = all(materias_semestre['Status'] == 'Concluído')
+                
+                label_sem = f"{sem}º Semestre" + (" ✅" if todas_concluidas else "")
+                c.attr(label=label_sem)
+                c.attr(style='filled')
+                c.attr(color='#f0fdf4' if todas_concluidas else '#ffffff') # Fundo verde claro se 100%
+                
+                for _, row in materias_semestre.iterrows():
+                    mat = row['Materia']
+                    status = row['Status']
+                    style = color_map.get(status, color_map['Futuro'])
+                    
+                    # Cria o Nó
+                    # Shape 'box' economiza espaço. 'Mrecord' permite formatação interna se precisar.
+                    c.node(mat, label=mat, 
+                           shape='box', 
+                           style='filled,rounded', 
+                           fillcolor=style['fill'], 
+                           color=style['border'], 
+                           fontcolor=style['font'],
+                           fontsize='10')
+
+        # Adiciona as Arestas (Setas) DEPOIS de criar todos os nós
+        # Isso evita que o graphviz crie nós fantasmas fora dos clusters
+        lista_materias_existentes = set(df_mat['Materia'].unique())
         
         for _, row in df_mat.iterrows():
-            mat = row['Materia']
-            status = row['Status']
+            destino = row['Materia']
             prereqs = row['Pre_Requisito'] # Lista
             
-            # Nó
-            graph.node(mat, label=mat, style='filled', fillcolor=colors.get(status, 'white'), shape='box')
-            
-            # Arestas (Setas) - Loop na lista de pré-requisitos
             if isinstance(prereqs, list):
-                for req in prereqs:
-                    if req in df_mat['Materia'].values:
-                        req_status = df_mat[df_mat['Materia'] == req]['Status'].values[0]
-                        edge_color = 'red' if req_status == 'Futuro' else 'black'
-                        graph.edge(req, mat, color=edge_color)
+                for origem in prereqs:
+                    if origem in lista_materias_existentes:
+                        # Define cor da seta
+                        # Se o pré-requisito NÃO está concluído, a seta é vermelha (BLOQUEIO)
+                        status_origem = df_mat[df_mat['Materia'] == origem]['Status'].values[0]
+                        
+                        if status_origem == 'Concluído':
+                            edge_color = '#cbd5e1' # Cinza claro (já passou, não bloqueia mais)
+                            penwidth = '1'
+                        else:
+                            edge_color = '#ef4444' # Vermelho (Alerta de bloqueio)
+                            penwidth = '2'
+                            
+                        graph.edge(origem, destino, color=edge_color, penwidth=penwidth)
 
-        st.graphviz_chart(graph, width='stretch')
+        # Renderiza
+        try:
+            st.graphviz_chart(graph, use_container_width=True)
+        except Exception as e:
+            st.error(f"Erro ao gerar gráfico. Verifique se o Graphviz está instalado no sistema. Detalhe: {e}")
 
     # ==============================================================================
     # MODO 1: DASHBOARD & GESTÃO DE HORÁRIOS (ATUALIZADO)
