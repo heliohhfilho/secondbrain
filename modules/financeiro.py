@@ -543,7 +543,7 @@ def render_page():
                         st.rerun()
 
     with tab_cartao:
-        
+        pass
 
 if __name__ == "__main__":
     render_page()
