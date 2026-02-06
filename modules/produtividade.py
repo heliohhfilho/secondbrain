@@ -229,6 +229,9 @@ def render_page():
                         ].index
                         df_h_check = df_h_check.drop(idx_del)
                         save_data(df_h_check, "Habitos_Log")
+
+                        load_data.clear()
+                        
                         st.rerun()
 
                     # Coluna 2: Informações e Status
