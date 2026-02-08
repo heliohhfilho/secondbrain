@@ -4,6 +4,51 @@ from datetime import datetime, date, timedelta
 import os
 import plotly.express as px
 
+# --- FUNÇÕES AUXILIARES DE INTEGRAÇÃO (AUTOMATION) ---
+
+def get_trimestre_atual():
+    mes = date.today().month
+    if mes <= 3: return "Q1"
+    elif mes <= 6: return "Q2"
+    elif mes <= 9: return "Q3"
+    else: return "Q4"
+
+def atualizar_meta_automatica(unidade_busca="livro"):
+    """
+    Busca metas ativas no trimestre atual que contenham a unidade especificada
+    e incrementa o progresso em +1.
+    """
+    # 1. Carrega Metas (Usando as colunas padrão do seu arquivo Metas)
+    cols = ["ID", "Titulo", "Descricao_S", "Motivo_R", "Meta_Valor", "Unidade", "Progresso_Atual", "Deadline_T", "Trimestre", "Ano"]
+    df_metas = conexoes.load_gsheet("Metas", cols)
+    
+    if df_metas.empty: return False
+
+    # 2. Contexto Atual
+    q_atual = get_trimestre_atual()
+    ano_atual = str(date.today().year)
+
+    # 3. Filtro: Mesma unidade (ex: 'livros'), mesmo Ano, mesmo Trimestre
+    # O str.contains garante que pegue "livro", "livros", "Livros"
+    mask = (
+        (df_metas['Unidade'].astype(str).str.lower().str.contains(unidade_busca.lower())) & 
+        (df_metas['Trimestre'] == q_atual) & 
+        (df_metas['Ano'] == ano_atual)
+    )
+
+    if mask.any():
+        # Converte para numérico antes de somar para evitar erros
+        df_metas.loc[mask, 'Progresso_Atual'] = pd.to_numeric(df_metas.loc[mask, 'Progresso_Atual'], errors='coerce').fillna(0)
+        
+        # Incrementa +1 nas metas encontradas
+        df_metas.loc[mask, 'Progresso_Atual'] += 1
+        
+        # Salva
+        conexoes.save_gsheet("Metas", df_metas)
+        return True # Retorna True se atualizou alguma meta
+    
+    return False
+
 from modules import conexoes
 @st.cache_data(ttl=600)
 def load_data():
@@ -69,17 +114,28 @@ def save_data(df, aba):
 def atualizar_leitura_externa(livro_nome, paginas_lidas_hoje):
     cols = ["Titulo", "Autor", "Total_Paginas", "Paginas_Lidas", "Nota", "Status"]
     df = conexoes.load_gsheet("Leituras", cols)
-    if df.empty: return
+    if df.empty: return False # Retorna False se falhar
     
     mask = df['Titulo'] == livro_nome
+    acabou_agora = False # Flag de controle
+
     if mask.any():
         idx = df[mask].index[0]
         pag_atual = pd.to_numeric(df.at[idx, 'Paginas_Lidas'], errors='coerce')
         total = pd.to_numeric(df.at[idx, 'Total_Paginas'], errors='coerce')
+        
         nova_pag = min(pag_atual + paginas_lidas_hoje, total)
+        
+        # LÓGICA DO GATILHO:
+        # Se antes não estava cheio, e agora encheu, o livro acabou neste input.
+        if pag_atual < total and nova_pag >= total:
+            df.at[idx, 'Status'] = "Concluído"
+            acabou_agora = True # Ativa o gatilho
+            
         df.at[idx, 'Paginas_Lidas'] = nova_pag
-        if nova_pag >= total: df.at[idx, 'Status'] = "Concluído"
         conexoes.save_gsheet("Leituras", df)
+        
+    return acabou_agora # Retorna para a interface saber o que fazer
 
 def atualizar_curso_externo(curso_nome, aulas_hoje):
     cols = ["Curso", "Plataforma", "Total_Aulas", "Aulas_Feitas", "Link_Certificado", "Status"]
@@ -281,13 +337,29 @@ def render_page():
             
             if st.button("Registrar Leitura"):
                 if sel_livro != "Nenhum":
-                    atualizar_leitura_externa(sel_livro, qtd_pag)
+                    # Chama a função e captura se o livro acabou
+                    livro_finalizado = atualizar_leitura_externa(sel_livro, qtd_pag)
+                    
+                    # Loga na aba Produtividade (Seu código original)
                     log = {"Data": date.today(), "Tipo": "Leitura", "Subtipo": sel_livro, "Valor": qtd_pag, "Unidade": "Páginas", "Detalhe": f"{tempo} min"}
                     df_log = pd.concat([df_log, pd.DataFrame([log])], ignore_index=True)
-                    # Loga tempo também
+                    
+                    # Loga o Tempo (Seu código original)
                     df_log = pd.concat([df_log, pd.DataFrame([{"Data": date.today(), "Tipo": "Tempo Foco", "Subtipo": "Leitura", "Valor": tempo, "Unidade": "Minutos", "Detalhe": sel_livro}])], ignore_index=True)
-                    save_data(df_log, "Habitos_Log")
+                    
+                    save_data(df_log, "Habitos_Log") # Nota: Verifique se o nome da aba é Habitos_Log ou Log_Produtividade, no seu código original havia uma mistura aqui.
+                    
                     st.success("Progresso registrado!")
+
+                    # --- GATILHO DE META ---
+                    if livro_finalizado:
+                        st.balloons() # Celebração visual
+                        atualizou_meta = atualizar_meta_automatica(unidade_busca="livro")
+                        
+                        if atualizou_meta:
+                            st.toast("🎯 Meta de Leitura atualizada automaticamente (+1)!", icon="🚀")
+                        else:
+                            st.info("Livro concluído! (Nenhuma meta ativa encontrada para este trimestre).")
 
         elif tipo_sessao == "🎓 Estudo/Curso":
             # Busca cursos ativos direto da nuvem
