@@ -275,6 +275,9 @@ def render_page():
                         new_check = {"Data": hoje, "Habito": habito, "Status": True}
                         df_h_check = pd.concat([df_h_check, pd.DataFrame([new_check])], ignore_index=True)
                         save_data(df_h_check, "Habitos_Log")
+
+                        load_data.clear()
+                        
                         st.balloons()
                         st.rerun()
                     elif not fazer and feito_hoje:
