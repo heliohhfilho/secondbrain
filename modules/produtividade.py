@@ -277,7 +277,7 @@ def render_page():
                         save_data(df_h_check, "Habitos_Log")
 
                         load_data.clear()
-                        
+
                         st.balloons()
                         st.rerun()
                     elif not fazer and feito_hoje:
@@ -388,8 +388,15 @@ def render_page():
                 if alvo in cursos and aulas > 0:
                     atualizar_curso_externo(alvo, aulas)
                 
-                log = {"Data": str(date.today()), "Tipo": "Estudo", "Subtipo": alvo, "Valor": tempo, "Unidade": "Minutos", "Detalhe": detalhe}
-                df_log = pd.concat([df_log, pd.DataFrame([log])], ignore_index=True)
+                log_qtd = {
+                        "Data": str(date.today()), 
+                        "Tipo": "Estudo", 
+                        "Subtipo": alvo, 
+                        "Valor": aulas,        # <--- Aqui salvamos a quantidade
+                        "Unidade": "Aulas", 
+                        "Detalhe": detalhe
+                    }
+                df_log = pd.concat([df_log, pd.DataFrame([log_qtd])], ignore_index=True)
                 save_data(df_log, "Log_Produtividade") # <--- Salva na nuvem
                 st.success("Foco registrado!")
 
