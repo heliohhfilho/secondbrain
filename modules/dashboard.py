@@ -61,17 +61,6 @@ def render_page():
         st.error(f"Erro ao carregar dados: {e}")
         return
 
-    # --- PROCESSAMENTO COGNITIVO ---
-    q1_count = 0
-    fears_crushed = 0
-    if not df_eisen.empty:
-        q1_count = len(df_eisen[(df_eisen['Importante']==True) & (df_eisen['Urgente']==True) & (df_eisen['Status']=='Pendente')])
-    if not df_fear.empty:
-        fears_crushed = len(df_fear[df_fear['Status']=='Superado'])
-
-    if q1_count > 0:
-        st.error(f"🔥 **ATENÇÃO:** {q1_count} tarefas Q1 (Críticas) pendentes.")
-
     # --- PREPARAÇÃO DE DADOS ---
     # Investimentos
     total_inv = (df_invest['Qtd'] * df_invest['Preco_Unitario']).sum() if not df_invest.empty else 0
@@ -155,16 +144,6 @@ def render_page():
     c3.metric("🧠 Deep Work (Hoje)", f"{horas_foco_hoje:.1f}h")
     c4.metric("💰 Poupança (Mês)", f"{savings_rate:.1f}%")
     
-    st.divider()
-    
-    # 2. SEÇÃO COGNITIVA & BUSINESS
-    st.subheader("🧠 Processador Cognitivo")
-    b1, b2, b3, b4 = st.columns(4)
-    b1.metric("🌪️ Pipeline CRM", f"R$ {pipeline_val:,.2f}", f"{deals_ativos} deals")
-    b2.metric("🛡️ Fear Setting", f"{fears_crushed} Superados" if fears_crushed > 0 else "Sem dados")
-    b3.metric("🛠️ Maker Space", f"{hobbies_ativos} Projetos")
-    b4.metric("🧶 Foco Atual", hobby_top)
-
     st.divider()
 
     # 3. ENGENHARIA DO CORPO
