@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 
+# Mantenha seus imports originais aqui
 from modules import produtividade, viagens, faculdade, leituras, cursos, compras, projetos, financeiro, daytrade, dashboard, bio, alma, negocio, conhecimento, metas, hobbies, carros, decisoes, eisenhower, fear_setting, musica, filmes, series, dump, languages
 
 st.set_page_config(
@@ -10,125 +11,143 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- CSS INJECTION (CYBERPUNK AESTHETIC) ---
+st.markdown("""
+<style>
+    /* 1. IMPORTANDO RAJDHANI */
+    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&display=swap');
+
+    /* 2. VARIÁVEIS DE TEMA */
+    :root {
+        --neon-yellow: #FCEE0A;
+        --neon-cyan: #00F0FF;
+        --matrix-bg: #000000;
+        --hud-gray: #1a1a1a;
+    }
+
+    /* 3. RESET GLOBAL */
+    html, body, [class*="css"], .stApp {
+        font-family: 'Rajdhani', sans-serif !important;
+        background-color: var(--matrix-bg);
+        color: #e0e0e0; /* Cor texto padrão (branco gelo) */
+    }
+
+    /* 4. TÍTULOS (H1, H2, H3) - FORÇANDO AMARELO */
+    h1, h2, h3, .stHeadingContainer h1, .stHeadingContainer h2, .stHeadingContainer h3 {
+        color: var(--neon-yellow) !important;
+        font-weight: 700 !important;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        text-shadow: 0 0 10px rgba(252, 238, 10, 0.4); /* Glow amarelo suave */
+        border-bottom: 2px solid var(--neon-cyan); /* Linha ciano embaixo dos títulos */
+        padding-bottom: 5px;
+    }
+
+    /* 5. SIDEBAR */
+    [data-testid="stSidebar"] {
+        background-color: #050505;
+        border-right: 1px solid var(--neon-cyan);
+    }
+    
+    /* 6. MENU DE NAVEGAÇÃO (RADIO BUTTONS CUSTOMIZADOS) */
+    
+    /* Esconde as bolinhas originais */
+    [data-testid="stSidebar"] [role="radiogroup"] > label > div:first-child {
+        display: none;
+    }
+
+    /* Estilo dos Botões do Menu */
+    [data-testid="stSidebar"] [role="radiogroup"] label {
+        padding: 12px 20px;
+        background: rgba(255, 255, 255, 0.03);
+        margin-bottom: 3px;
+        transition: all 0.2s ease-in-out;
+        border-left: 3px solid transparent;
+        font-family: 'Rajdhani', sans-serif !important;
+        font-size: 18px !important;
+        text-transform: uppercase;
+        color: #888; /* Cor inativa */
+        cursor: pointer;
+    }
+
+    /* Hover (Mouse em cima) */
+    [data-testid="stSidebar"] [role="radiogroup"] label:hover {
+        color: var(--neon-cyan) !important;
+        background: rgba(0, 240, 255, 0.1);
+        border-left: 3px solid var(--neon-cyan);
+        padding-left: 25px; /* Efeito de deslizar */
+    }
+
+    /* Item Ativo (Selecionado) */
+    [data-testid="stSidebar"] [role="radiogroup"] [data-checked="true"] {
+        background: rgba(252, 238, 10, 0.1) !important;
+        color: var(--neon-yellow) !important;
+        border-left: 5px solid var(--neon-yellow) !important;
+        font-weight: 700 !important;
+        text-shadow: 0 0 5px var(--neon-yellow);
+    }
+
+    /* 7. BOTÕES GERAIS (st.button) */
+    .stButton button {
+        background-color: transparent;
+        border: 1px solid var(--neon-cyan);
+        color: var(--neon-cyan);
+        border-radius: 0px; /* Canto reto */
+        text-transform: uppercase;
+        font-family: 'Rajdhani', sans-serif;
+        font-weight: 600;
+        transition: 0.3s;
+    }
+    
+    .stButton button:hover {
+        background-color: var(--neon-cyan);
+        color: #000;
+        box-shadow: 0 0 15px var(--neon-cyan);
+    }
+
+</style>
+""", unsafe_allow_html=True)
+
 if not os.path.exists("data"):
     os.makedirs("data")
 
 # --- SIDEBAR --- #
-
 with st.sidebar:
-    st.title("🧠 Segundo Cérebro")
-    st.markdown("---")
-
+    st.markdown("<h1 style='text-align: center; border-bottom: 2px solid #FCEE0A; padding-bottom: 10px;'>🧠 NEURAL_LINK</h1>", unsafe_allow_html=True)
+    
+    # Menu Principal
     choice = st.radio(
-        "Navegue por aqui:",
+        "NAVIGATION MODULES:", # Label escondida visualmente se quiser, ou estilizada
         [
-            "Dashboard",
-            "Produtividade", 
-            "Financeiro",
-            "Projetos", 
-            "Viagens",
-            "Dump",
-            "Faculdade",
-            "Leituras",
-            "Cursos",
-            "Compras",
-            "DayTrade",
-            "Bio-Data",
-            "Alma",
-            "Negócio",
-            "Conhecimento",
-            "Metas",
-            "Hobbies",
-            "Carros",
-            "Decisões",
-            "Eisenhower",
-            "Fear Setting",
-            "Musica",
-            "Filmes",
-            "Series",
-            "Linguagens"
-            ]
+            "Dashboard", "Produtividade", "Financeiro", "Projetos", "Viagens",
+            "Dump", "Faculdade", "Leituras", "Cursos", "Compras",
+            "DayTrade", "Bio-Data", "Alma", "Negócio", "Conhecimento",
+            "Metas", "Hobbies", "Carros", "Decisões", "Eisenhower",
+            "Fear Setting", "Musica", "Filmes", "Series", "Linguagens"
+        ],
+        label_visibility="collapsed" # Esconde o título "Navigation Modules" para limpar o visual
     )
-    st.markdown("---")
-    st.caption("V1.0 -- Helio")
 
-    if st.sidebar.button("🔄 Sincronizar Nuvem"):
+    st.markdown("---")
+    
+    # Botão Sincronizar (Estilo Cyberpunk)
+    if st.button("⚡ SYNC_CLOUD"):
         st.cache_data.clear()
         st.rerun()
+    
+    st.markdown("<div style='text-align: right; color: #555; font-size: 0.8em; margin-top: 20px;'>SYS_ID: HELIO_V1</div>", unsafe_allow_html=True)
 
-# --- ROTEAMENTO --- #
+# --- LOGICA DE ROTEAMENTO (MANTIDA) ---
+# Dica de Engenharia: Dict mapping é mais performático que múltiplos IFs
+pages = {
+    "Dashboard": dashboard, "Produtividade": produtividade, "Financeiro": financeiro,
+    "Projetos": projetos, "Viagens": viagens, "Dump": dump, "Faculdade": faculdade,
+    "Leituras": leituras, "Cursos": cursos, "Compras": compras, "DayTrade": daytrade,
+    "Bio-Data": bio, "Alma": alma, "Negócio": negocio, "Conhecimento": conhecimento,
+    "Metas": metas, "Hobbies": hobbies, "Carros": carros, "Decisões": decisoes,
+    "Eisenhower": eisenhower, "Fear Setting": fear_setting, "Musica": musica,
+    "Filmes": filmes, "Series": series, "Linguagens": languages
+}
 
-if choice == "Produtividade":
-    produtividade.render_page()
-
-if choice == "Viagens":
-    viagens.render_page()
-
-if choice == "Faculdade":
-    faculdade.render_page()
-
-if choice == "Leituras":
-    leituras.render_page()
-
-if choice == "Cursos":
-    cursos.render_page()
-
-if choice == "Compras":
-    compras.render_page()
-
-if choice == "Projetos":
-    projetos.render_page()
-
-if choice == "Financeiro":
-    financeiro.render_page()
-
-if choice == "DayTrade":
-    daytrade.render_page()
-
-if choice == "Dashboard":
-    dashboard.render_page()
-
-if choice == "Bio-Data":
-    bio.render_page()
-
-if choice == "Alma":
-    alma.render_page()
-
-if choice == "Negócio":
-    negocio.render_page()
-
-if choice == "Conhecimento":
-    conhecimento.render_page()
-
-if choice == "Metas":
-    metas.render_page()
-
-if choice == "Hobbies":
-    hobbies.render_page()
-
-if choice == "Carros":
-    carros.render_page()
-
-if choice == "Decisões":
-    decisoes.render_page()
-
-if choice == "Eisenhower":
-    eisenhower.render_page()
-
-if choice == "Fear Setting":
-    fear_setting.render_page()
-
-if choice == "Musica":
-    musica.render_page()
-
-if choice == "Filmes":
-    filmes.render_page()
-
-if choice == "Series":
-    series.render_page()
-
-if choice == "Dump":
-    dump.render_page()
-
-if choice == "Linguagens":
-    languages.render_page()
+if choice in pages:
+    pages[choice].render_page()
