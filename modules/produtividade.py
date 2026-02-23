@@ -1,84 +1,40 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date, timedelta
-import os
-import plotly.express as px
-
-# --- FUNÇÕES AUXILIARES DE INTEGRAÇÃO (AUTOMATION) ---
-
-def get_trimestre_atual():
-    mes = date.today().month
-    if mes <= 3: return "Q1"
-    elif mes <= 6: return "Q2"
-    elif mes <= 9: return "Q3"
-    else: return "Q4"
-
-def atualizar_meta_automatica(unidade_busca="livro"):
-    """
-    Busca metas ativas no trimestre atual que contenham a unidade especificada
-    e incrementa o progresso em +1.
-    """
-    # 1. Carrega Metas (Usando as colunas padrão do seu arquivo Metas)
-    cols = ["ID", "Titulo", "Descricao_S", "Motivo_R", "Meta_Valor", "Unidade", "Progresso_Atual", "Deadline_T", "Trimestre", "Ano"]
-    df_metas = conexoes.load_gsheet("Metas", cols)
-    
-    if df_metas.empty: return False
-
-    # 2. Contexto Atual
-    q_atual = get_trimestre_atual()
-    ano_atual = str(date.today().year)
-
-    # 3. Filtro: Mesma unidade (ex: 'livros'), mesmo Ano, mesmo Trimestre
-    # O str.contains garante que pegue "livro", "livros", "Livros"
-    mask = (
-        (df_metas['Unidade'].astype(str).str.lower().str.contains(unidade_busca.lower())) & 
-        (df_metas['Trimestre'] == q_atual) & 
-        (df_metas['Ano'] == ano_atual)
-    )
-
-    if mask.any():
-        # Converte para numérico antes de somar para evitar erros
-        df_metas.loc[mask, 'Progresso_Atual'] = pd.to_numeric(df_metas.loc[mask, 'Progresso_Atual'], errors='coerce').fillna(0)
-        
-        # Incrementa +1 nas metas encontradas
-        df_metas.loc[mask, 'Progresso_Atual'] += 1
-        
-        # Salva
-        conexoes.save_gsheet("Metas", df_metas)
-        return True # Retorna True se atualizou alguma meta
-    
-    return False
-
 from modules import conexoes
+from datetime import date, timedelta
+
+def save_data(df, aba):
+    df_save = df.copy()
+
+    for col in ["Data", "Status", "Concluido", "Ativo"]:
+        if col in df_save.columns:
+            df_save[col] = df_save[col].astype(str)
+
+    conexoes.save_gsheet(aba, df_save)
+
 @st.cache_data(ttl=600)
 def load_data():
-    # 1. Tarefas
-    cols_t = ["Tarefa", "Data", "Concluido", "Prioridade"]
-    df_t = conexoes.load_gsheet("Tarefas", cols_t)
-    if not df_t.empty:
-        df_t["Concluido"] = df_t["Concluido"].astype(str).str.upper() == "TRUE"
-        
-    # 2. Log de Produtividade (Deep Work)
+
     cols_log = ["Data", "Tipo", "Subtipo", "Valor", "Unidade", "Detalhe"]
     df_log = conexoes.load_gsheet("Log_Produtividade", cols_log)
     if not df_log.empty:
         df_log["Valor"] = pd.to_numeric(df_log["Valor"], errors='coerce').fillna(0)
 
-    # 3. Configuração de Hábitos
     cols_h_conf = ["Habito", "Categoria", "Ativo"]
     df_h_conf = conexoes.load_gsheet("Habitos_Config", cols_h_conf)
     if df_h_conf.empty:
         defaults = [
-            {"Habito": "Acordar às 06h", "Categoria": "Rotina", "Ativo": "True"},
-            {"Habito": "Exercício Físico", "Categoria": "Saúde", "Ativo": "True"},
-            {"Habito": "Leitura Técnica", "Categoria": "Intelecto", "Ativo": "True"}
+            {"Habito": "Acordar cedo", "Categoria": "Rotina", "Ativo": "True"},
+            {"Habito": "Exercicio Fisico", "Categoria": "Saúde", "Ativo": "True"},
+            {"Habito": "Leitura", "Categoria": "Inteligência", "Ativo": "True"}
         ]
         df_h_conf = pd.DataFrame(defaults)
         conexoes.save_gsheet("Habitos_Config", df_h_conf)
+
     else:
         df_h_conf["Ativo"] = df_h_conf["Ativo"].astype(str).str.upper() == "TRUE"
 
-    # 4. Log de Hábitos (Checks) - Refatorado para garantir estrutura
+
     cols_esperadas = ["Data", "Habito", "Status"]
     try:
         df_h_check = conexoes.load_gsheet("Habitos_Log", cols_esperadas)
@@ -97,64 +53,11 @@ def load_data():
 
     if not df_h_check.empty:
         df_h_check = df_h_check.dropna(subset=['Habito'])
-        # Conversão booleana segura
         df_h_check["Status"] = df_h_check["Status"].astype(str).str.upper() == "TRUE"
 
-    return df_t, df_log, df_h_conf, df_h_check
+    return df_log, df_h_conf, df_h_check
 
-def save_data(df, aba):
-    df_save = df.copy()
-    # Converte tipos para GSheets (Data e Booleanos para string)
-    for col in ["Data", "Status", "Concluido", "Ativo"]:
-        if col in df_save.columns:
-            df_save[col] = df_save[col].astype(str)
-    conexoes.save_gsheet(aba, df_save)
-
-# --- INTEGRAÇÃO ENTRE ABAS NA NUVEM ---
-def atualizar_leitura_externa(livro_nome, paginas_lidas_hoje):
-    cols = ["Titulo", "Autor", "Total_Paginas", "Paginas_Lidas", "Nota", "Status"]
-    df = conexoes.load_gsheet("Leituras", cols)
-    if df.empty: return False # Retorna False se falhar
-    
-    mask = df['Titulo'] == livro_nome
-    acabou_agora = False # Flag de controle
-
-    if mask.any():
-        idx = df[mask].index[0]
-        pag_atual = pd.to_numeric(df.at[idx, 'Paginas_Lidas'], errors='coerce')
-        total = pd.to_numeric(df.at[idx, 'Total_Paginas'], errors='coerce')
-        
-        nova_pag = min(pag_atual + paginas_lidas_hoje, total)
-        
-        # LÓGICA DO GATILHO:
-        # Se antes não estava cheio, e agora encheu, o livro acabou neste input.
-        if pag_atual < total and nova_pag >= total:
-            df.at[idx, 'Status'] = "Concluído"
-            acabou_agora = True # Ativa o gatilho
-            
-        df.at[idx, 'Paginas_Lidas'] = nova_pag
-        conexoes.save_gsheet("Leituras", df)
-        
-    return acabou_agora # Retorna para a interface saber o que fazer
-
-def atualizar_curso_externo(curso_nome, aulas_hoje):
-    cols = ["Curso", "Plataforma", "Total_Aulas", "Aulas_Feitas", "Link_Certificado", "Status"]
-    df = conexoes.load_gsheet("Cursos", cols)
-    if df.empty: return
-    
-    mask = df['Curso'] == curso_nome
-    if mask.any():
-        idx = df[mask].index[0]
-        atual = pd.to_numeric(df.at[idx, 'Aulas_Feitas'], errors='coerce')
-        total = pd.to_numeric(df.at[idx, 'Total_Aulas'], errors='coerce')
-        novo = min(atual + aulas_hoje, total)
-        df.at[idx, 'Aulas_Feitas'] = novo
-        if novo >= total: df.at[idx, 'Status'] = "Concluído"
-        conexoes.save_gsheet("Cursos", df)
-
-# --- ENGINE DE STREAKS (Sequência) ---
 def calcular_streak(df_checks, habito_nome):
-    """Calcula dias consecutivos atuais e consistência mensal"""
     if df_checks.empty: return 0, 0
     
     # Filtra só esse hábito e datas únicas
@@ -192,13 +95,51 @@ def calcular_streak(df_checks, habito_nome):
     
     return streak, consistencia
 
+def atualizar_leitura_externa(livro_nome, paginas_lidas_hoje):
+    cols = ["Titulo", "Autor", "Total_Paginas", "Paginas_Lidas", "Nota", "Status"]
+    df = conexoes.load_gsheet("Leituras", cols)
+    if df.empty: return False
+
+    mask = df['Titulo'] == livro_nome
+    acabou_agora = False # Flag de controle
+
+    if mask.any():
+        idx = df[mask].index[0]
+        pag_atual = pd.to_numeric(df.at[idx, 'Paginas_Lidas'], errors='coerce')
+        total = pd.to_numeric(df.at[idx, 'Total_Paginas'], errors='coerce')
+        
+        nova_pag = min(pag_atual + paginas_lidas_hoje, total)
+        
+        if pag_atual < total and nova_pag >= total:
+            df.at[idx, 'Status'] = "Concluído"
+            acabou_agora = True
+            
+        df.at[idx, 'Paginas_Lidas'] = nova_pag
+        conexoes.save_gsheet("Leituras", df)
+        
+    return acabou_agora
+
+def atualizar_curso_externo(curso_nome, aulas_hoje):
+    cols = ["Curso", "Plataforma", "Total_Aulas", "Aulas_Feitas", "Link_Certificado", "Status"]
+    df = conexoes.load_gsheet("Cursos", cols)
+    if df.empty: return
+    
+    mask = df['Curso'] == curso_nome
+    if mask.any():
+        idx = df[mask].index[0]
+        atual = pd.to_numeric(df.at[idx, 'Aulas_Feitas'], errors='coerce')
+        total = pd.to_numeric(df.at[idx, 'Total_Aulas'], errors='coerce')
+        novo = min(atual + aulas_hoje, total)
+        df.at[idx, 'Aulas_Feitas'] = novo
+        if novo >= total: df.at[idx, 'Status'] = "Concluído"
+        conexoes.save_gsheet("Cursos", df)
+
 def render_page():
-    st.header("🧠 Productive Mind (Hábitos & Foco)")
-    
-    df_t, df_log, df_h_conf, df_h_check = load_data()
-    
-    # --- ABAS ---
-    tab_habitos, tab_deep, tab_tarefas, tab_analytics, tab_admin = st.tabs([
+    st.header(" Produtividade ")
+
+    df_log, df_h_conf, df_h_check = load_data()
+
+    tab_habitos, tab_deep_work, tab_tarefas, tab_analytics, tab_admin = st.tabs([
         "✅ Rotina & Hábitos", 
         "⚡ Sessões de Foco", 
         "📝 To-Do List", 
@@ -206,99 +147,112 @@ def render_page():
         "🛠️ Gerenciar Dados"
     ])
 
-    # ==============================================================================
-    # ABA 1: HABIT TRACKER (O Novo Recurso)
-    # ==============================================================================
     with tab_habitos:
         st.subheader("🔥 Streak & Disciplina (Hoje)")
-        
-        # --- CONFIGURADOR DE HÁBITOS (SIDEBAR DO TAB) ---
+
+        habitos_ativos = df_h_conf[df_h_conf['Ativo'] == True]
+ 
         with st.expander("⚙️ Gerenciar Meus Hábitos (Adicionar/Remover)"):
             c_add1, c_add2, c_add3 = st.columns([2, 1, 1])
             novo_h = c_add1.text_input("Nome do Hábito")
             cat_h = c_add2.text_input("Categoria", "Geral")
             if c_add3.button("Criar Hábito"):
                 if novo_h:
-                    novo_reg = {"Habito": novo_h, "Categoria": cat_h, "Ativo": True}
+                    novo_reg = {"Habito": novo_h.strip(), "Categoria": cat_h.strip(), "Ativo": True}
                     df_h_conf = pd.concat([df_h_conf, pd.DataFrame([novo_reg])], ignore_index=True)
                     save_data(df_h_conf, "Habitos_Config")
+                    st.cache_data.clear()
                     st.rerun()
-            
-            # Listar para remover
+
             st.divider()
             st.caption("Desativar Hábitos:")
-            for idx, row in df_h_conf.iterrows():
-                if row['Ativo']:
-                    cols = st.columns([4, 1])
-                    cols[0].write(f"**{row['Habito']}** ({row['Categoria']})")
-                    if cols[1].button("🗑️", key=f"del_h_{idx}"):
-                        df_h_conf.at[idx, 'Ativo'] = False # Soft delete
-                        save_data(df_h_conf, "Habitos_Config")
-                        st.rerun()
+            for idx, row in habitos_ativos.iterrows():
+                cols = st.columns([4, 1])
+                cols[0].write(f"**{row['Habito']}** ({row['Categoria']})")
 
-        # --- O DASHBOARD DE HOJE ---
+                if cols[1].button("🗑️", key=f"del_h_{idx}"):
+                    df_h_conf.at[idx, 'Ativo'] = False
+
+                    save_data(df_h_conf, "Habitos_Config")
+                    st.cache_data.clear()
+                    st.rerun()
+
         habitos_ativos = df_h_conf[df_h_conf['Ativo'] == True]
-        
+
         if habitos_ativos.empty:
-            st.info("Cadastre hábitos no menu acima ⚙️")
+            st.info("Cadastre hábitos no menu acima")
         else:
-            # Grid de Cards
             st.divider()
-            
-            # Garante formato de data
-            df_h_check['Data'] = pd.to_datetime(df_h_check['Data']).dt.date
+
             hoje = date.today()
 
+            if not df_h_check.empty:
+                df_h_check['Data'] = pd.to_datetime(df_h_check['Data']).dt.date
+
+                habitos_feitos_hoje = df_h_check[
+                    (df_h_check['Data'] == hoje) &
+                    (df_h_check['Status'] == True)
+                ]['Habito'].tolist()
+            else:
+                habitos_feito_hoje = []
+
+            habitos_pendentes = habitos_ativos[~habitos_ativos['Habito'].isin(habitos_feitos_hoje)]
+
+            st.subheader(" Hábitos de Hoje ")
+
+            if habitos_pendentes.empty:
+                st.success("Todos os hábitos concluidos hoje.")
+                st.balloons()
+
+            else:
+                with st.form("form_habitos_hoje"):
+                    st.write("Marca os habitos que concluiste e guarda de uma só vez:")
+
+                    resultados_checkbox = {}
+
+                    for _, row in habitos_pendentes.iterrows():
+                        habito = row['Habito']
+                        resultados_checkbox[habito] = st.checkbox(f"{habito} ({row['Categoria']})")
+
+                    submitted = st.form_submit_button("Salvar Hábitos Marcados", type="primary")
+
+                    if submitted:
+                        novos_registros = []
+                        for habito, foi_feito in resultados_checkbox.items():
+                            if foi_feito:
+                                novos_registros.append({"Data": hoje, "Habito": habito, "Status": True})
+
+                        if novos_registros:
+                            df_h_check = pd.concat([df_h_check, pd.DataFrame(novos_registros)], ignore_index=True)
+                            save_data(df_h_check, "Habitos_Log")
+
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.warning("Não marcaste nenhum hábito. Seleciona pelo menos um para guardar!")
+
+            st.divider()
+            st.subheader("📊 O Meu Progresso")
+            
+            # Aqui mostramos TODOS os hábitos ativos (os feitos hoje e os não feitos)
             for _, row in habitos_ativos.iterrows():
                 habito = row['Habito']
                 
-                # Verifica se já fez hoje
-                feito_hoje = not df_h_check[
-                    (df_h_check['Habito'] == habito) & 
-                    (df_h_check['Data'] == hoje) & 
-                    (df_h_check['Status'] == True)
-                ].empty
-
-                # Calcula Streak
+                # Calcula Streak usando a tua função
                 streak, consistencia = calcular_streak(df_h_check, habito)
                 
-                # Visual do Card
+                # Feedback visual extra: Mostra se já está concluído hoje no título do card
+                badge_hoje = "✅ Feito hoje" if habito in habitos_feitos_hoje else "⏳ Pendente"
+                
+                # Visual do Card (sem a checkbox gigante)
                 with st.container(border=True):
-                    c_check, c_info, c_stats = st.columns([1, 4, 2])
+                    c_info, c_stats = st.columns([3, 2])
                     
-                    # Coluna 1: Checkbox gigante
-                    fazer = c_check.checkbox("Feito", value=feito_hoje, key=f"chk_{habito}", label_visibility="collapsed")
-                    
-                    # Lógica de salvar/remover check
-                    if fazer and not feito_hoje:
-                        # Salva
-                        new_check = {"Data": hoje, "Habito": habito, "Status": True}
-                        df_h_check = pd.concat([df_h_check, pd.DataFrame([new_check])], ignore_index=True)
-                        save_data(df_h_check, "Habitos_Log")
-
-                        load_data.clear()
-
-                        st.balloons()
-                        st.rerun()
-                    elif not fazer and feito_hoje:
-                        # Remove (Desmarcou)
-                        idx_del = df_h_check[
-                            (df_h_check['Habito'] == habito) & 
-                            (df_h_check['Data'] == hoje)
-                        ].index
-                        df_h_check = df_h_check.drop(idx_del)
-                        save_data(df_h_check, "Habitos_Log")
-
-                        load_data.clear()
-                        
-                        st.rerun()
-
-                    # Coluna 2: Informações e Status
                     with c_info:
-                        st.markdown(f"#### {habito}")
+                        st.markdown(f"#### {habito} `{badge_hoje}`")
                         st.caption(f"Categoria: {row['Categoria']}")
                         
-                        # Análise do Segundo Cérebro
+                        # A tua Lógica do Segundo Cérebro
                         status_habito = "🌱 Iniciante"
                         cor_status = "grey"
                         if consistencia > 80: 
@@ -313,218 +267,87 @@ def render_page():
                             
                         st.markdown(f"Status: :{cor_status}[**{status_habito}**]")
 
-                    # Coluna 3: Métricas
                     with c_stats:
                         st.metric("Streak", f"{streak} dias", delta="Fogo!" if streak > 5 else None)
                         st.metric("30 Dias", f"{int(consistencia)}%", help="Frequência nos últimos 30 dias")
 
-    # ==============================================================================
-    # ABA 2: SESSÕES DE FOCO (Antigo Leitura/Estudo)
-    # ==============================================================================
-    with tab_deep:
-        st.subheader("⏱️ Registrar Deep Work")
-        st.caption("Aqui você registra a 'Quantidade' (Páginas, Aulas, Tempo).")
+    with tab_deep_work:
+        st.subheader("Deep Work")
+
+        tipo_sessao = st.radio("Atvidade", ["Leitura", "Cursos", "Faculdade"], horizontal=True)
         
-        tipo_sessao = st.radio("Atividade", ["📖 Leitura", "🎓 Estudo/Curso", "💼 Projeto/Geral"], horizontal=True)
-        
-        if tipo_sessao == "📖 Leitura":
+        if tipo_sessao == "Leitura":
             try:
                 df_l = conexoes.load_gsheet("Leituras", ["Titulo", "Autor", "Total_Paginas", "Paginas_Lidas", "Nota", "Status"])
                 livros = df_l[df_l['Status'] == 'Lendo']['Titulo'].tolist()
             except: livros = []
-            
+
             c1, c2 = st.columns(2)
-            sel_livro = c1.selectbox("Livro", livros if livros else ["Nenhum"])
-            qtd_pag = c2.number_input("Páginas Lidas", min_value=1)
-            tempo = st.slider("Tempo (min)", 10, 180, 30, step=5)
-            
-            if st.button("Registrar Leitura"):
-                if sel_livro != "Nenhum":
-                    # Chama a função e captura se o livro acabou
-                    livro_finalizado = atualizar_leitura_externa(sel_livro, qtd_pag)
-                    
-                    # Loga na aba Produtividade (Seu código original)
-                    log = {"Data": date.today(), "Tipo": "Leitura", "Subtipo": sel_livro, "Valor": qtd_pag, "Unidade": "Páginas", "Detalhe": f"{tempo} min"}
-                    df_log = pd.concat([df_log, pd.DataFrame([log])], ignore_index=True)
-                    
-                    # Loga o Tempo (Seu código original)
-                    df_log = pd.concat([df_log, pd.DataFrame([{"Data": date.today(), "Tipo": "Tempo Foco", "Subtipo": "Leitura", "Valor": tempo, "Unidade": "Minutos", "Detalhe": sel_livro}])], ignore_index=True)
-                    
-                    save_data(df_log, "Habitos_Log") # Nota: Verifique se o nome da aba é Habitos_Log ou Log_Produtividade, no seu código original havia uma mistura aqui.
-                    
-                    st.success("Progresso registrado!")
+            with st.form("registrar_leitura"):
+                sel_livro = c1.selectbox("Livro", livros if livros else ["Nenhum"])
+                qtd_pag = c2.number_input("Páginas Lidas", min_value=1, step=1)
 
-                    # --- GATILHO DE META ---
-                    if livro_finalizado:
-                        st.balloons() # Celebração visual
-                        atualizou_meta = atualizar_meta_automatica(unidade_busca="livro")
+                submitted = st.form_submit_button("Salvar Leitura", type="primary")
+
+                if submitted:
+                    if sel_livro != "Nenhum":
+                        livro_finalizado = atualizar_leitura_externa(sel_livro, qtd_pag)
+                        log = {"Data": date.today(), "Tipo": "Leitura", "Subtipo": sel_livro, "Valor": qtd_pag, "Unidade": "Paginas"}
+                        df_log = pd.concat([df_log, pd.DataFrame([log])], ignore_index=True)
+
+                        save_data(df_log, "Habitos_Log")
+
+                        st.success("Progresso registrado!")
+
+                        for _, row in habitos_ativos.iterrows():
+                            habito = row['Habito']
+
+                            if "LEITURA" in habito.upper() or "LER" in habito.upper():
+                                novo_check = {"Data": date.today(), "Habito": habito, "Status": True}
+                                df_h_check = pd.concat([df_h_check, pd.DataFrame([novo_check])], ignore_index=True)
+                                save_data(df_h_check, "Habitos_Log")
+                         
+                                st.toast(f"✅ Hábito '{habito}' marcado automaticamente!")
                         
-                        if atualizou_meta:
-                            st.toast("🎯 Meta de Leitura atualizada automaticamente (+1)!", icon="🚀")
-                        else:
-                            st.info("Livro concluído! (Nenhuma meta ativa encontrada para este trimestre).")
+                        st.cache_data.clear()
+                        st.rerun()
 
-        elif tipo_sessao == "🎓 Estudo/Curso":
-            # Busca cursos ativos direto da nuvem
+        elif tipo_sessao == "Cursos":
             df_c = conexoes.load_gsheet("Cursos", ["Curso", "Status"])
             cursos = df_c[df_c['Status'] == 'Em Andamento']['Curso'].tolist() if not df_c.empty else []
             
-            # Busca matérias da faculdade direto da nuvem
+            with st.form("registrar_curso"):
+                alvo = st.selectbox("O que estudou?", cursos)
+                c1, c2 = st.columns(2)
+                
+                aulas = 0
+                if alvo in cursos:
+                    aulas = c2.number_input("Aulas Concluídas", 0, step=1)
+
+                submitted = st.form_submit_button("Registrar Estudo", type="primary")
+
+                if submitted:
+                    if alvo in cursos and aulas > 0:
+                        atualizar_curso_externo(alvo, aulas)
+
+                    log_qtd = {
+                        "Data": str(date.today()),
+                        "Tipo": "Cursos",
+                        "Subtipo": alvo,
+                        "Valor": aulas,
+                        "Unidade": "Aulas"
+                    }
+
+                    df_log = pd.concat([df_log, pd.DataFrame([log_qtd])], ignore_index=True)
+                    save_data(df_log, "Log_Produtividade")
+                    st.success("Foco registrado!")
+
+        elif tipo_sessao == "Faculdade":
             df_f = conexoes.load_gsheet("Fac_Materias", ["Materia", "Status"])
             materias = df_f[df_f['Status'] == 'Cursando']['Materia'].tolist() if not df_f.empty else []
-            
-            alvo = st.selectbox("O que estudou?", ["Curso Extra"] + cursos + ["Faculdade"] + materias)
-            
+
+            alvo = st.selectbox("O que estudou?", ["Faculdade"] + materias)
+
             c1, c2 = st.columns(2)
-            tempo = c1.number_input("Tempo Líquido (min)", 30, step=10)
-            
-            aulas = 0
-            if alvo in cursos:
-                aulas = c2.number_input("Aulas Concluídas", 0)
-            
-            detalhe = st.text_input("Resumo do que foi feito")
-            
-            if st.button("Registrar Estudo"):
-                if alvo in cursos and aulas > 0:
-                    atualizar_curso_externo(alvo, aulas)
-                
-                log_qtd = {
-                        "Data": str(date.today()), 
-                        "Tipo": "Estudo", 
-                        "Subtipo": alvo, 
-                        "Valor": aulas,        # <--- Aqui salvamos a quantidade
-                        "Unidade": "Aulas", 
-                        "Detalhe": detalhe
-                    }
-                df_log = pd.concat([df_log, pd.DataFrame([log_qtd])], ignore_index=True)
-                save_data(df_log, "Log_Produtividade") # <--- Salva na nuvem
-                st.success("Foco registrado!")
-
-        elif tipo_sessao == "💼 Projeto/Geral":
-            proj = st.text_input("Projeto / Tarefa")
-            tempo = st.number_input("Tempo (min)", 10, step=10)
-            desc = st.text_area("Detalhes")
-            if st.button("Registrar Trabalho"):
-                log = {"Data": str(date.today()), "Tipo": "Trabalho", "Subtipo": proj, "Valor": tempo, "Unidade": "Minutos", "Detalhe": desc}
-                df_log = pd.concat([df_log, pd.DataFrame([log])], ignore_index=True)
-                save_data(df_log, "Log_Produtividade") # <--- Salva na nuvem
-                st.success("Deep Work registrado!")
-
-    # ==============================================================================
-    # ABA 3: TAREFAS (TO-DO)
-    # ==============================================================================
-    with tab_tarefas:
-        c1, c2 = st.columns([3, 1])
-        t_nome = c1.text_input("Nova Tarefa")
-        t_prio = c2.selectbox("Prioridade", ["Alta", "Média", "Baixa"])
-        if st.button("Adicionar Tarefa"):
-            t = {"Tarefa": t_nome, "Data": str(date.today()), "Concluido": "False", "Prioridade": t_prio}
-            df_t = pd.concat([df_t, pd.DataFrame([t])], ignore_index=True)
-            save_data(df_t, "Tarefas")
-            st.rerun()
-
-        if not df_t.empty:
-            pend = df_t[df_t['Concluido'] == False]
-            if not pend.empty:
-                for idx, row in pend.iterrows():
-                    c_chk, c_txt, c_del = st.columns([0.5, 4, 0.5])
-                    if c_chk.checkbox("", key=f"t_{idx}"):
-                        df_t.at[idx, 'Concluido'] = True
-                        save_data(df_t, "Tarefas")
-                        st.rerun()
-                    c_txt.write(f"**{row['Tarefa']}** ({row['Prioridade']})")
-                    if c_del.button("x", key=f"dt_{idx}"):
-                        df_t = df_t.drop(idx)
-                        save_data(df_t, "Tarefas")
-                        st.rerun()
-            else:
-                st.info("Zero pendências! 🏖️")
-
-    # ==============================================================================
-    # ABA 4: ANALYTICS (EVOLUÇÃO DOS HÁBITOS)
-    # ==============================================================================
-    with tab_analytics:
-        st.subheader("📊 Raio-X da Disciplina")
+            tempo = c1.number_input("Tempo Líquido (min)", 30, step=1)
         
-        if not df_h_check.empty:
-            df_h_check['Data'] = pd.to_datetime(df_h_check['Data'])
-            
-            # Gráfico de Calor (Consistência Diária) - Simplificado em Barras por Dia
-            daily_counts = df_h_check.groupby('Data').size().reset_index(name='Hábitos Feitos')
-            st.caption("Hábitos Concluídos por Dia (Histórico)")
-            st.bar_chart(daily_counts.set_index("Data"))
-            
-            st.divider()
-            
-            # Tabela de Performance por Hábito
-            data_perf = []
-            for _, row in habitos_ativos.iterrows():
-                h = row['Habito']
-                streak, cons = calcular_streak(df_h_check, h)
-                total_checks = len(df_h_check[df_h_check['Habito'] == h])
-                data_perf.append({
-                    "Hábito": h,
-                    "Categoria": row['Categoria'],
-                    "Streak Atual": f"{streak} dias",
-                    "Consistência (30d)": f"{int(cons)}%",
-                    "Total Feito": total_checks
-                })
-            
-            st.dataframe(pd.DataFrame(data_perf).set_index("Hábito"), width='stretch')
-            
-        else:
-            st.warning("Comece a marcar seus hábitos para gerar gráficos!")
-
-    # ==============================================================================
-    # NOVA ABA: GERENCIAR DADOS (O que você pediu)
-    # ==============================================================================
-    with tab_admin:
-        st.subheader("⚙️ Editor de Banco de Dados")
-        st.caption("Use esta seção para corrigir registros passados, deletar erros ou adicionar maratonas esquecidas.")
-
-        # --- SELETOR DE TABELA ---
-        tabela_alvo = st.radio("Selecione a base para editar:", 
-                              ["Log de Produtividade (Deep Work)", "Tarefas", "Log de Hábitos"], 
-                              horizontal=True)
-
-        if tabela_alvo == "Log de Produtividade (Deep Work)":
-            df_atual = df_log.copy()
-            aba_nome = "Log_Produtividade"
-        elif tabela_alvo == "Tarefas":
-            df_atual = df_t.copy()
-            aba_nome = "Tarefas"
-        else:
-            df_atual = df_h_check.copy()
-            aba_nome = "Habitos_Log"
-
-        st.info(f"Editando: **{aba_nome}**")
-
-        if "Data" in df_atual.columns and not df_atual.empty:
-            df_atual["Data"] = pd.to_datetime(df_atual["Data"], errors='coerce').dt.date
-        
-        # O data_editor permite Adicionar (num_rows="dynamic"), Editar e Deletar
-        df_editado = st.data_editor(
-            df_atual, 
-            num_rows="dynamic", 
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Data": st.column_config.DateColumn("Data", format="YYYY-MM-DD", required=True),
-                "Valor": st.column_config.NumberColumn("Valor", min_value=0),
-                "Status": st.column_config.CheckboxColumn("Status"),
-                "Concluido": st.column_config.CheckboxColumn("Concluido")
-            }
-        )
-
-        if st.button(f"💾 Sincronizar Alterações em {aba_nome}"):
-            try:
-                # Saneamento antes de salvar
-                if "Data" in df_editado.columns:
-                    df_editado["Data"] = df_editado["Data"].astype(str)
-                
-                # Salvando na nuvem usando sua função original
-                save_data(df_editado, aba_nome)
-                st.success("Dados atualizados com sucesso na nuvem!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Erro ao salvar: {e}")

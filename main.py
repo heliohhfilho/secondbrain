@@ -2,7 +2,9 @@ import streamlit as st
 import os
 
 # Mantenha seus imports originais aqui
-from modules import produtividade, viagens, faculdade, leituras, cursos, compras, projetos, financeiro, daytrade, dashboard, bio, alma, negocio, conhecimento, metas, hobbies, carros, decisoes, eisenhower, fear_setting, musica, filmes, series, dump, languages
+from modules import produtividade, faculdade, leitura, cursos, corpo, negocio, conhecimento, metas, carros
+from modules import dashboard, dump
+#viagens, projetos, financeiro, daytrade,financeiro, daytrade, dashboard,hobbies,  decisoes, eisenhower, fear_setting, musica, filmes, series
 
 st.set_page_config(
     page_title="Segundo Cérebro",
@@ -120,8 +122,8 @@ with st.sidebar:
         "NAVIGATION MODULES:", # Label escondida visualmente se quiser, ou estilizada
         [
             "Dashboard", "Produtividade", "Financeiro", "Projetos", "Viagens",
-            "Dump", "Faculdade", "Leituras", "Cursos", "Compras",
-            "DayTrade", "Bio-Data", "Alma", "Negócio", "Conhecimento",
+            "Dump", "Faculdade", "Leituras", "Cursos",
+            "DayTrade", "Bio-Data", "Negócio", "Conhecimento",
             "Metas", "Hobbies", "Carros", "Decisões", "Eisenhower",
             "Fear Setting", "Musica", "Filmes", "Series", "Linguagens"
         ],
@@ -140,14 +142,27 @@ with st.sidebar:
 # --- LOGICA DE ROTEAMENTO (MANTIDA) ---
 # Dica de Engenharia: Dict mapping é mais performático que múltiplos IFs
 pages = {
-    "Dashboard": dashboard, "Produtividade": produtividade, "Financeiro": financeiro,
-    "Projetos": projetos, "Viagens": viagens, "Dump": dump, "Faculdade": faculdade,
-    "Leituras": leituras, "Cursos": cursos, "Compras": compras, "DayTrade": daytrade,
-    "Bio-Data": bio, "Alma": alma, "Negócio": negocio, "Conhecimento": conhecimento,
-    "Metas": metas, "Hobbies": hobbies, "Carros": carros, "Decisões": decisoes,
-    "Eisenhower": eisenhower, "Fear Setting": fear_setting, "Musica": musica,
-    "Filmes": filmes, "Series": series, "Linguagens": languages
+    "Dashboard": dashboard, 
+    "Produtividade": produtividade,
+    "Faculdade": faculdade,
+    "Leituras": leitura, 
+    "Cursos": cursos,
+    "Bio-Data": corpo, 
+    "Negócio": negocio, 
+    "Conhecimento": conhecimento,
+    "Metas": metas,
+    "Carros": carros,
+    "Dump": dump,
 }
+"""
+    "Financeiro": financeiro,
+    "Projetos": projetos, "Viagens": viagens
+    "DayTrade": daytrade,
+    "Bio-Data": corpo,
+    "Hobbies": hobbies, "Decisões": decisoes,
+    "Eisenhower": eisenhower, "Fear Setting": fear_setting, "Musica": musica,
+    "Filmes": filmes, "Series": series
 
+"""
 if choice in pages:
     pages[choice].render_page()

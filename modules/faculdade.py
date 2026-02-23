@@ -41,7 +41,6 @@ def load_data():
         if "Status" not in df_t.columns: df_t["Status"] = "A Fazer"
 
     if not df_m.empty:
-        # CONVERSÃO CRÍTICA: String "Mat A, Mat B" -> Lista ["Mat A", "Mat B"]
         def str_to_list(x):
             if pd.isna(x) or x == "-" or str(x).strip() == "":
                 return []

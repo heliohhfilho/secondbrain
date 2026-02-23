@@ -4,6 +4,8 @@ from datetime import datetime, date
 import plotly.express as px
 from modules import conexoes
 
+from modules.linear_model_project import fazer_analise_com_modelo_linear
+
 def load_data():
     cols = ["Titulo", "Autor", "Total_Paginas", "Paginas_Lidas", "Nota", "Status"]
     df = conexoes.load_gsheet("Leituras", cols)
@@ -44,6 +46,12 @@ def render_page():
     c2.metric("Ritmo Diário (Real)", f"{ritmo_diario:.1f} pág/dia")
     c3.metric("Livros em Andamento", len(df_livros[df_livros['Status'] == "Lendo"]))
 
+    probabilidade, acuracia = fazer_analise_com_modelo_linear()
+
+    c1_linear_model, c2_linear_model = st.columns(2)
+    c1_linear_model.metric("Probabilidade de ler amanha", f"{probabilidade:.2%}")
+    c2_linear_model.metric("Acuracia do Modelo", f"{acuracia:.2%}")
+
     st.divider()
 
     # --- GRÁFICO DE BARRAS: PÁGINAS POR DIA ---
@@ -54,7 +62,7 @@ def render_page():
                      title="Páginas Lidas por Dia",
                      labels={'Valor': 'Páginas', 'Data': 'Dia'},
                      color_discrete_sequence=['#00CC96'])
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     else:
         st.info("Ainda não há registros de leitura este mês.")
 
@@ -114,4 +122,4 @@ def render_page():
                     st.rerun()
 
     with tab_concluidos:
-        st.dataframe(df_livros[df_livros['Status'] == "Concluído"][["Titulo", "Autor", "Nota"]], use_container_width=True)
+        st.dataframe(df_livros[df_livros['Status'] == "Concluído"][["Titulo", "Autor", "Nota"]], width='stretch')

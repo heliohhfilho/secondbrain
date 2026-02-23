@@ -4,7 +4,7 @@ import requests
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 from datetime import date
-from modules import conexoes # Mantendo sua conexão original
+from modules import conexoes
 
 # --- CONFIGURAÇÕES VISUAIS (ESTILO TÉCNICO) ---
 plt.style.use('bmh')

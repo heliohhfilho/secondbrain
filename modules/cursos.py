@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, date, timedelta
 import plotly.express as px
 from modules import conexoes
+from modules.linear_model_project import fazer_analise_curso
 
 def load_data():
     # Carrega Cursos
@@ -49,6 +50,12 @@ def render_page():
     k1, k2, k3 = st.columns(3)
     k1.metric("Aulas este Mês", int(total_aulas_mes))
     k2.metric("Ritmo Real", f"{ritmo_diario:.2f} aulas/dia", help="Baseado na produção deste mês")
+
+    horizonte_texto, probabilidade, acuracia = fazer_analise_curso()
+
+    c1, c2 = st.columns(2)
+    c1.metric(f"Probabilidade de fazer aula {horizonte_texto}", f"{probabilidade:.2%}")
+    c2.metric(f"Acuracia: ", f"{acuracia:.2%}")
     
     # Progresso Geral (Soma de tudo)
     ativos = df_cursos[df_cursos['Status'] == "Em Andamento"]
@@ -69,7 +76,7 @@ def render_page():
         fig = px.bar(daily_study, x='Data', y='Valor', 
                      labels={'Valor': 'Aulas/Tempo', 'Data': 'Dia'},
                      color_discrete_sequence=['#636EFA'])
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     else:
         st.info("Sem registros de estudo este mês. Vá em 'Produtividade' para registrar.")
 
